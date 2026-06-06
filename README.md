@@ -6,4 +6,4 @@
 
 # PROJECT STRUCTURE
 
-[text](../file.txt)
+[text](file.txt)

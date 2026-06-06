@@ -1,0 +1,155 @@
+hft-system/
+│
+├── README.md
+├── .gitignore
+├── Makefile
+├── docker-compose.yml
+├── CMakeLists.txt
+│
+├── docs/
+│   ├── architecture.md
+│   ├── api.md
+│   ├── deployment.md
+│   └── roadmap.md
+│
+├── configs/
+│   ├── dev.yaml
+│   ├── test.yaml
+│   └── prod.yaml
+│
+├── proto/
+│   ├── market_data.proto
+│   ├── order.proto
+│   ├── execution.proto
+│   ├── risk.proto
+│   ├── strategy.proto
+│   └── prediction.proto
+│
+├── core-cpp/
+│   ├── CMakeLists.txt
+│   │
+│   ├── include/
+│   │   ├── common/
+│   │   │   ├── types.hpp
+│   │   │   ├── constants.hpp
+│   │   │   ├── logger.hpp
+│   │   │   └── config.hpp
+│   │   │
+│   │   ├── order_book/
+│   │   │   ├── order.hpp
+│   │   │   └── order_book.hpp
+│   │   │
+│   │   ├── matching_engine/
+│   │   │   └── matching_engine.hpp
+│   │   │
+│   │   ├── feed_handler/
+│   │   │   └── feed_handler.hpp
+│   │   │
+│   │   ├── strategy/
+│   │   │   └── strategy.hpp
+│   │   │
+│   │   ├── risk/
+│   │   │   └── risk_manager.hpp
+│   │   │
+│   │   ├── execution/
+│   │   │   └── execution_engine.hpp
+│   │   │
+│   │   └── grpc/
+│   │       └── prediction_client.hpp
+│   │
+│   ├── src/
+│   │   ├── common/
+│   │   ├── order_book/
+│   │   ├── matching_engine/
+│   │   ├── feed_handler/
+│   │   ├── strategy/
+│   │   ├── risk/
+│   │   ├── execution/
+│   │   └── grpc/
+│   │
+│   ├── tests/
+│   └── benchmarks/
+│
+├── exchange-sim/
+│   ├── cmd/
+│   │   └── exchange/
+│   │       └── main.cpp
+│   │
+│   ├── market_data/
+│   ├── matching/
+│   ├── generators/
+│   └── fixtures/
+│
+├── backend-go/
+│   ├── go.mod
+│   ├── go.sum
+│   │
+│   ├── cmd/
+│   │   └── server/
+│   │       └── main.go
+│   │
+│   ├── internal/
+│   │   ├── config/
+│   │   ├── http/
+│   │   ├── websocket/
+│   │   ├── grpc/
+│   │   ├── service/
+│   │   │   ├── marketdata/
+│   │   │   ├── orders/
+│   │   │   ├── replay/
+│   │   │   └── metrics/
+│   │   └── storage/
+│   │
+│   └── generated/
+│
+├── ml/
+│   ├── data/
+│   │
+│   ├── feature_engineering/
+│   │   └── features.py
+│   │
+│   ├── training/
+│   │   ├── train.py
+│   │   └── evaluate.py
+│   │
+│   ├── models/
+│   │   └── model.pkl
+│   │
+│   ├── inference/
+│   │   ├── server.py
+│   │   └── predictor.py
+│   │
+│   └── notebooks/
+│
+├── frontend/
+│   ├── package.json
+│   ├── next.config.js
+│   │
+│   ├── public/
+│   │
+│   └── src/
+│       ├── app/
+│       ├── components/
+│       ├── hooks/
+│       ├── services/
+│       └── types/
+│
+├── replay/
+│   ├── recorder/
+│   ├── player/
+│   └── datasets/
+│
+├── observability/
+│   ├── prometheus/
+│   ├── grafana/
+│   └── dashboards/
+│
+├── scripts/
+│   ├── build.sh
+│   ├── test.sh
+│   ├── run_local.sh
+│   └── generate_proto.sh
+│
+└── deployment/
+    ├── docker/
+    └── k8s/
