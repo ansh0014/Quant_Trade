@@ -82,3 +82,4 @@ struct alignas(CACHELINE_SIZE) FalseSharingGuard<T> {
 }
 
 }
+// namespace hft
