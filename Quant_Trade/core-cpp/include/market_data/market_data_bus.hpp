@@ -9,27 +9,6 @@
 
 namespace hft {
 
-// ============================================================================
-// MarketDataBus
-//
-// Event-driven publish/subscribe bus for internal market data distribution.
-//
-// Events:
-//   TradeEvent     — a fill occurred
-//   SnapshotEvent  — L1 book update
-//   ExecutionEvent — per-client execution report
-//
-// Subscribers register a callback at startup (compile-time bounded count).
-// Publish is a simple loop over registered callbacks — O(N) where N is small
-// (typically 4-6 subscribers).
-//
-// No dynamic allocation. No virtual dispatch (std::function with SBO).
-// For ultra-low latency, replace with function pointer arrays + static dispatch.
-// ============================================================================
-
-// ============================================================================
-// Event types
-// ============================================================================
 struct TradeEvent {
     TradeId    trade_id;
     OrderId    bid_order_id;
@@ -57,14 +36,10 @@ struct ExecutionEvent {
     ExecutionReport report;
 };
 
-// ============================================================================
-// Callback types
-// ============================================================================
 using TradeHandler     = std::function<void(const TradeEvent&)>;
 using SnapshotHandler  = std::function<void(const SnapshotEvent&)>;
 using ExecutionHandler = std::function<void(const ExecutionEvent&)>;
 
-// ============================================================================
 constexpr size_t MAX_SUBSCRIBERS = 16;
 
 class MarketDataBus {
@@ -73,9 +48,6 @@ public:
         : trade_count_(0), snapshot_count_(0), exec_count_(0)
     {}
 
-    // -------------------------------------------------------------------------
-    // Subscribe
-    // -------------------------------------------------------------------------
     bool subscribe_trades(TradeHandler handler) noexcept {
         if (trade_count_ >= MAX_SUBSCRIBERS) return false;
         trade_handlers_[trade_count_++] = std::move(handler);
@@ -94,9 +66,6 @@ public:
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // Publish — hot path: iterate and call each handler
-    // -------------------------------------------------------------------------
     void publish_trade(const TradeEvent& ev) noexcept {
         for (size_t i = 0; i < trade_count_; ++i) {
             trade_handlers_[i](ev);
@@ -115,9 +84,6 @@ public:
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Convenience: build and publish a TradeEvent from raw fields
-    // -------------------------------------------------------------------------
     void emit_trade(TradeId tid, OrderId bid, OrderId ask,
                     SymbolId sym, Price price, Quantity qty,
                     SequenceNo seq, Timestamp ts) noexcept {
