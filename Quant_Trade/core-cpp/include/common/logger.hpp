@@ -11,8 +11,8 @@ namespace hft {
 
 class LowLatencyLogger {
 private:
-    static constexpr size_t BUFFER_CAPACITY = 65536;  // Fixed slots (power of 2)
-    static constexpr size_t BUFFER_MASK = BUFFER_CAPACITY - 1;  // Modulo via bitwise AND
+    static constexpr size_t BUFFER_CAPACITY = 65536;
+    static constexpr size_t BUFFER_MASK = BUFFER_CAPACITY - 1;
     
     struct LogEntry {
         uint64_t timestamp;
