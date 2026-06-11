@@ -15,36 +15,10 @@
 
 namespace hft {
 
-// ============================================================================
-// OrderBook
-//
-// Price-time priority central limit order book for a single symbol.
-//
-// Design:
-//  - Bid side: std::map<Price, PriceLevel, std::greater<Price>>
-//    → best bid = begin() (highest price)
-//  - Ask side: std::map<Price, PriceLevel, std::less<Price>>
-//    → best ask = begin() (lowest price)
-//  - Order lookup: unordered_map<OrderId, OrderNode*>
-//    → O(1) cancel / modify without scanning the book
-//  - OrderNode memory: caller-provided pool pointer (zero-copy design)
-//    → no malloc inside OrderBook on the hot path
-//
-// API:
-//  add_order(node*)        — insert node into appropriate side; O(log P)
-//  cancel_order(order_id)  — remove by id; O(1) lookup + O(1) list remove
-//  modify_order(...)       — cancel + re-insert; O(1) + O(log P)
-//  match_order(node*, cb)  — match against resting book; callback per fill
-//  snapshot()              — return L1 MarketData
-// ============================================================================
-
-// Callback type: invoked once per match (fill)
-// Args: (taker_node, maker_node, fill_qty, fill_price)
 using FillCallback = std::function<void(OrderNode*, OrderNode*, Quantity, Price)>;
 
 class OrderBook {
 public:
-    // Pool must outlive the OrderBook
     explicit OrderBook(SymbolId sym) noexcept
         : symbol_id_(sym)
     {}
@@ -52,10 +26,6 @@ public:
     OrderBook(const OrderBook&) = delete;
     OrderBook& operator=(const OrderBook&) = delete;
 
-    // -------------------------------------------------------------------------
-    // add_order — place a resting limit order into the book
-    // The node must be allocated from a pool before calling.
-    // -------------------------------------------------------------------------
     void add_order(OrderNode* node) noexcept {
         if (node->is_buy()) {
             bids_[node->price].push_back(node);
@@ -67,10 +37,6 @@ public:
         lookup_[node->order_id] = node;
     }
 
-    // -------------------------------------------------------------------------
-    // cancel_order — remove a resting order by ID
-    // Returns the node pointer (caller returns it to pool), or nullptr.
-    // -------------------------------------------------------------------------
     [[nodiscard]] OrderNode* cancel_order(OrderId id) noexcept {
         auto it = lookup_.find(id);
         if (HFT_UNLIKELY(it == lookup_.end())) return nullptr;
@@ -81,15 +47,10 @@ public:
         return node;
     }
 
-    // -------------------------------------------------------------------------
-    // modify_order — atomically change price or quantity (cancel + re-add)
-    // Returns false if order not found.
-    // -------------------------------------------------------------------------
     bool modify_order(OrderId id, Price new_price, Quantity new_qty) noexcept {
         OrderNode* node = cancel_order(id);
         if (HFT_UNLIKELY(!node)) return false;
 
-        // Update fields
         node->price     = new_price;
         node->orig_qty  = new_qty;
         node->remain_qty = new_qty;
@@ -99,16 +60,6 @@ public:
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // match_order — match an incoming order against the book.
-    //
-    // For each fill:
-    //   - cb(taker, maker, fill_qty, fill_price) is called
-    //   - maker node's remain_qty is decremented
-    //   - maker node removed from book if fully filled
-    //
-    // Returns remaining unfilled quantity.
-    // -------------------------------------------------------------------------
     Quantity match_order(OrderNode* taker, FillCallback& cb) noexcept {
         const bool is_buy = taker->is_buy();
         auto match_loop = [&](auto& opposite_side) {
@@ -116,7 +67,6 @@ public:
                 auto level_it = opposite_side.begin();
                 PriceLevel& level = level_it->second;
 
-                // Price check
                 if (!price_crosses(taker, level.price, is_buy)) break;
 
                 OrderNode* maker = level.front();
@@ -128,18 +78,15 @@ public:
                 const Quantity fill_qty = (taker->remain_qty < maker->remain_qty)
                                             ? taker->remain_qty
                                             : maker->remain_qty;
-                const Price   fill_price = maker->price; // maker price (passive priority)
+                const Price   fill_price = maker->price;
 
-                // Apply fill
                 taker->remain_qty -= fill_qty;
                 maker->remain_qty -= fill_qty;
                 level.reduce_qty(fill_qty);
 
-                // Invoke fill callback (generates Trade + ExecutionReports)
                 cb(taker, maker, fill_qty, fill_price);
 
                 if (maker->remain_qty == 0) {
-                    // Fully filled maker: remove from book
                     (void)level.pop_front();
                     lookup_.erase(maker->order_id);
                     if (level.empty()) {
@@ -158,9 +105,6 @@ public:
         return taker->remain_qty;
     }
 
-    // -------------------------------------------------------------------------
-    // snapshot — L1 market data
-    // -------------------------------------------------------------------------
     [[nodiscard]] MarketData snapshot() const noexcept {
         MarketData md(symbol_id_);
         if (!bids_.empty()) {
@@ -176,9 +120,6 @@ public:
         return md;
     }
 
-    // -------------------------------------------------------------------------
-    // Accessors
-    // -------------------------------------------------------------------------
     [[nodiscard]] Price best_bid() const noexcept {
         return bids_.empty() ? INVALID_PRICE : bids_.begin()->first;
     }
@@ -192,9 +133,6 @@ public:
     [[nodiscard]] size_t order_count() const noexcept { return lookup_.size(); }
     [[nodiscard]] SymbolId symbol() const noexcept { return symbol_id_; }
 
-    // -------------------------------------------------------------------------
-    // Iterators for market data publisher / snapshot builder
-    // -------------------------------------------------------------------------
     template <typename Fn>
     void for_each_bid_level(Fn&& fn, size_t max_levels = 10) const noexcept {
         size_t n = 0;
@@ -220,9 +158,6 @@ public:
     }
 
 private:
-    // -------------------------------------------------------------------------
-    // Price crossing check
-    // -------------------------------------------------------------------------
     [[nodiscard]] static bool price_crosses(
         const OrderNode* taker, Price maker_price, bool taker_is_buy) noexcept
     {
@@ -231,9 +166,6 @@ private:
                             : (taker->price <= maker_price);
     }
 
-    // -------------------------------------------------------------------------
-    // Internal remove helper
-    // -------------------------------------------------------------------------
     void remove_from_book(OrderNode* node) noexcept {
         if (node->is_buy()) {
             auto it = bids_.find(node->price);
@@ -250,16 +182,10 @@ private:
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Members
-    // -------------------------------------------------------------------------
     SymbolId symbol_id_;
 
-    // Bid side: highest price first
     std::map<Price, PriceLevel, std::greater<Price>> bids_;
-    // Ask side: lowest price first
     std::map<Price, PriceLevel, std::less<Price>>    asks_;
-    // Order ID → node pointer for O(1) cancel
     std::unordered_map<OrderId, OrderNode*>          lookup_;
 };
 
