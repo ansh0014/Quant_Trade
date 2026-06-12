@@ -1,0 +1,56 @@
+{
+    "timestamp_iso": "2026-06-12T14:04:36.366580",
+    "benchmarks": {
+        "bench_latency": {
+            "status": "success",
+            "stdout_raw": "=== RDTSC Overhead ===\nMin: 8.67 ns (3 cycles)\nMax: 24937.33 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n\n=== Order Construction ===\nMin: 7.33 ns (3 cycles)\nMax: 4106.67 ns (3 cycles)\nAvg: 8.33 ns (0 cycles)\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "rdtsc_overhead": {
+                    "raw": "Min: 8.67 ns (3 cycles)\nMax: 24937.33 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n",
+                    "min_ns": 8.67,
+                    "min_cycles": 3.0,
+                    "max_ns": 24937.33,
+                    "max_cycles": 3.0,
+                    "avg_ns": 10.33,
+                    "avg_cycles": 0.0
+                },
+                "order_construction": {
+                    "raw": "Min: 7.33 ns (3 cycles)\nMax: 4106.67 ns (3 cycles)\nAvg: 8.33 ns (0 cycles)\n",
+                    "min_ns": 7.33,
+                    "min_cycles": 3.0,
+                    "max_ns": 4106.67,
+                    "max_cycles": 3.0,
+                    "avg_ns": 8.33,
+                    "avg_cycles": 0.0
+                }
+            }
+        },
+        "bench_order_book": {
+            "status": "success",
+            "stdout_raw": "=== Order Book Benchmark ===\nAdd Order:\n  Min: 309.33 ns\n  Max: 139931.33 ns\n  Avg: 456.33 ns\n\nCancel Order:\n  Min: 245.33 ns\n  Max: 20971.33 ns\n  Avg: 319.00 ns\n\nMarket Snapshot:\n  Cycles: 2806\n  Time: 935.33 ns\n  Best Bid: 20000 @ 148\n  Best Ask: 20000 @ 101\n\nBook Depth: BUY=25 SELL=25\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "order_book_benchmark": {
+                    "raw": "Add Order:\nMin: 309.33 ns\nMax: 139931.33 ns\nAvg: 456.33 ns\nCancel Order:\nMin: 245.33 ns\nMax: 20971.33 ns\nAvg: 319.00 ns\nMarket Snapshot:\nCycles: 2806\nTime: 935.33 ns\nBest Bid: 20000 @ 148\nBest Ask: 20000 @ 101\nBook Depth: BUY=25 SELL=25\n"
+                }
+            }
+        },
+        "bench_matching_engine": {
+            "status": "success",
+            "stdout_raw": "=== Matching Engine Benchmark ===\nMatches: 5000\nMin: 250.00 ns\nMax: 16366.00 ns\nAvg: 314.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "matching_engine_benchmark": {
+                    "raw": "Matches: 5000\nMin: 250.00 ns\nMax: 16366.00 ns\nAvg: 314.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n"
+                }
+            }
+        }
+    }
+}
