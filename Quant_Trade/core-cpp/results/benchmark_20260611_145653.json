@@ -1,0 +1,50 @@
+{
+    "timestamp_iso": "2026-06-11T14:56:52.076665",
+    "benchmarks": {
+        "bench_latency": {
+            "status": "success",
+            "stdout_raw": "=== RDTSC Overhead ===\nMin: 8.67 ns (3 cycles)\nMax: 25135.33 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n\n=== Order Construction ===\nMin: 6.67 ns (3 cycles)\nMax: 15826.00 ns (3 cycles)\nAvg: 9.67 ns (0 cycles)\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "rdtsc_overhead": {
+                    "raw": "Min: 8.67 ns (3 cycles)\nMax: 25135.33 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n",
+                    "min_ns": 8.67,
+                    "min_cycles": 3.0,
+                    "max_ns": 25135.33,
+                    "max_cycles": 3.0,
+                    "avg_ns": 10.33,
+                    "avg_cycles": 0.0
+                },
+                "order_construction": {
+                    "raw": "Min: 6.67 ns (3 cycles)\nMax: 15826.00 ns (3 cycles)\nAvg: 9.67 ns (0 cycles)\n",
+                    "min_ns": 6.67,
+                    "min_cycles": 3.0,
+                    "max_ns": 15826.0,
+                    "max_cycles": 3.0,
+                    "avg_ns": 9.67,
+                    "avg_cycles": 0.0
+                }
+            }
+        },
+        "bench_order_book": {
+            "status": "failed",
+            "stdout_raw": "",
+            "parsed_metrics": {},
+            "stderr": "Segmentation fault (core dumped)\n"
+        },
+        "bench_matching_engine": {
+            "status": "success",
+            "stdout_raw": "=== Matching Engine Benchmark ===\nMatches: 5000\nMin: 253.33 ns\nMax: 2161.33 ns\nAvg: 300.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "matching_engine_benchmark": {
+                    "raw": "Matches: 5000\nMin: 253.33 ns\nMax: 2161.33 ns\nAvg: 300.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n"
+                }
+            }
+        }
+    }
+}

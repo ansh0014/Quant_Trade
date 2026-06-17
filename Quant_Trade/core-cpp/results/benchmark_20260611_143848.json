@@ -1,0 +1,50 @@
+{
+    "timestamp_iso": "2026-06-11T14:38:47.565748",
+    "benchmarks": {
+        "bench_latency": {
+            "status": "success",
+            "stdout_raw": "=== RDTSC Overhead ===\nMin: 10.67 ns (3 cycles)\nMax: 72751.33 ns (3 cycles)\nAvg: 13.67 ns (0 cycles)\n\n=== Order Construction ===\nMin: 8.67 ns (3 cycles)\nMax: 294.67 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "rdtsc_overhead": {
+                    "raw": "Min: 10.67 ns (3 cycles)\nMax: 72751.33 ns (3 cycles)\nAvg: 13.67 ns (0 cycles)\n",
+                    "min_ns": 10.67,
+                    "min_cycles": 3.0,
+                    "max_ns": 72751.33,
+                    "max_cycles": 3.0,
+                    "avg_ns": 13.67,
+                    "avg_cycles": 0.0
+                },
+                "order_construction": {
+                    "raw": "Min: 8.67 ns (3 cycles)\nMax: 294.67 ns (3 cycles)\nAvg: 10.33 ns (0 cycles)\n",
+                    "min_ns": 8.67,
+                    "min_cycles": 3.0,
+                    "max_ns": 294.67,
+                    "max_cycles": 3.0,
+                    "avg_ns": 10.33,
+                    "avg_cycles": 0.0
+                }
+            }
+        },
+        "bench_order_book": {
+            "status": "failed",
+            "stdout_raw": "",
+            "parsed_metrics": {},
+            "stderr": "Segmentation fault (core dumped)\n"
+        },
+        "bench_matching_engine": {
+            "status": "success",
+            "stdout_raw": "=== Matching Engine Benchmark ===\nMatches: 5000\nMin: 282.00 ns\nMax: 179917.33 ns\nAvg: 452.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n",
+            "parsed_metrics": {
+                "general": {
+                    "raw": ""
+                },
+                "matching_engine_benchmark": {
+                    "raw": "Matches: 5000\nMin: 282.00 ns\nMax: 179917.33 ns\nAvg: 452.67 ns\nBest Bid: 0 @ 0\nBest Ask: 0 @ 0\n"
+                }
+            }
+        }
+    }
+}
