@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package hft.prediction.v1;
+
+option go_package = "github.com/anshul/hft/backend/generated/proto/prediction;prediction";
+
+message PredictionRequest {
+  string symbol = 1;
+  repeated double features = 2;
+  int64 timestamp_ns = 3;
+}
+
+message PredictionResponse {
+  string symbol = 1;
+  double price_direction = 2;
+  double predicted_value = 3;
+  int64 timestamp_ns = 4;
+}
+
+service PredictionService {
+  rpc Predict (PredictionRequest) returns (PredictionResponse);
+}

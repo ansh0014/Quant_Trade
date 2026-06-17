@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package hft.strategy.v1;
+
+option go_package = "github.com/anshul/hft/backend/generated/proto/strategy;strategy";
+
+message StrategyConfig {
+  uint32 spread_threshold = 1;
+  uint32 order_qty = 2;
+  uint32 client_id = 3;
+}
+
+message StrategyStatus {
+  string name = 1;
+  bool active = 2;
+  StrategyConfig config = 3;
+}
+
+message UpdateConfigRequest {
+  StrategyConfig config = 1;
+}
+
+message UpdateConfigResponse {
+  bool success = 1;
+}
+
+service StrategyService {
+  rpc UpdateConfig (UpdateConfigRequest) returns (UpdateConfigResponse);
+  rpc GetStatus (UpdateConfigRequest) returns (StrategyStatus);
+}

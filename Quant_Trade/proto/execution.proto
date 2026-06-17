@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package hft.execution.v1;
+
+option go_package = "github.com/anshul/hft/backend/generated/proto/execution;execution";
+
+import "order.proto";
+
+message Trade {
+  uint64 trade_id = 1;
+  uint64 bid_order_id = 2;
+  uint64 ask_order_id = 3;
+  uint32 price = 4;
+  uint32 quantity = 5;
+  uint64 timestamp = 6;
+  uint64 sequence = 7;
+  uint32 symbol_id = 8;
+}
+
+message ExecutionReport {
+  uint64 trade_id = 1;
+  uint64 order_id = 2;
+  uint64 sequence = 3;
+  uint64 timestamp = 4;
+  uint32 executed_price = 5;
+  uint32 executed_qty = 6;
+  uint32 leaves_qty = 7;
+  uint32 cum_qty = 8;
+  uint32 client_id = 9;
+  uint32 symbol_id = 10;
+  hft.order.v1.OrderStatus status = 11;
+  hft.order.v1.OrderSide side = 12;
+  hft.order.v1.RejectReason reject_reason = 13;
+}
+
+message GetTradeHistoryRequest {
+  uint32 symbol_id = 1;
+  uint64 start_time = 2;
+  uint64 end_time = 3;
+}
+
+message GetTradeHistoryResponse {
+  repeated Trade trades = 1;
+}
+
+service ExecutionService {
+  rpc StreamExecutions (GetTradeHistoryRequest) returns (stream ExecutionReport);
+  rpc GetTradeHistory (GetTradeHistoryRequest) returns (GetTradeHistoryResponse);
+}

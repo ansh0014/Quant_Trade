@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package hft.marketdata.v1;
+
+option go_package = "github.com/anshul/hft/backend/generated/proto/marketdata;marketdata";
+
+// -----------------------------------------------------------------------
+// Core data type
+// -----------------------------------------------------------------------
+
+message Tick {
+  int64  timestamp_ns = 1;   // Nanosecond unix timestamp from exchange clock
+  string symbol       = 2;   // e.g. "AAPL", "MSFT"
+  double bid          = 3;   // Best bid price
+  double ask          = 4;   // Best ask price
+  double bid_sz       = 5;   // Quantity available at bid
+  double ask_sz       = 6;   // Quantity available at ask
+  double last_price   = 7;   // Last traded price
+  double volume       = 8;   // Cumulative volume for this session
+  int64  sequence     = 9;   // Monotonically increasing sequence from exchange
+  bool   seq_gap      = 10;  // True if sequence numbers were missing before this tick
+}
+
+// -----------------------------------------------------------------------
+// StreamTicks — live tick stream
+// -----------------------------------------------------------------------
+
+message StreamTicksRequest {
+  // Empty = subscribe to all symbols; populated = filter to these symbols
+  repeated string symbols = 1;
+}
+
+message StreamTicksResponse {
+  Tick tick = 1;
+}
+
+// -----------------------------------------------------------------------
+// GetHistoricalTicks — historical replay for ML dataset download
+// -----------------------------------------------------------------------
+
+message GetHistoricalTicksRequest {
+  string symbol   = 1;  // Symbol to query
+  int64  start_ns = 2;  // Start timestamp (inclusive), 0 = earliest
+  int64  end_ns   = 3;  // End timestamp (inclusive), 0 = latest
+  int32  max_rows = 4;  // Max rows to return, 0 = unlimited
+}
+
+message GetHistoricalTicksResponse {
+  repeated Tick ticks       = 1;
+  int64         total_count = 2;  // Total matching rows (may be > len(ticks) if capped)
+}
+
+// -----------------------------------------------------------------------
+// HealthCheck
+// -----------------------------------------------------------------------
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status      = 1;  // "ok" | "degraded" | "error"
+  int64  uptime_s    = 2;  // Seconds since server start
+  int64  tick_count  = 3;  // Total ticks ingested since start
+  int64  ticks_stored = 4; // Total ticks persisted to Parquet
+  string version     = 5;
+}
+
+// -----------------------------------------------------------------------
+// MarketDataService
+// -----------------------------------------------------------------------
+
+service MarketDataService {
+  // Live tick stream — server-side streaming
+  rpc StreamTicks        (StreamTicksRequest)        returns (stream StreamTicksResponse);
+
+  // Historical tick download — for ML dataset preparation
+  rpc GetHistoricalTicks (GetHistoricalTicksRequest) returns (GetHistoricalTicksResponse);
+
+  // Health and diagnostics
+  rpc HealthCheck        (HealthCheckRequest)        returns (HealthCheckResponse);
+}

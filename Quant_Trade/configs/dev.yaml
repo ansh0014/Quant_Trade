@@ -1,0 +1,28 @@
+# Development configuration for the backend data pipeline
+
+server:
+  grpc_port: 9090          # gRPC MarketDataService port
+  ws_port: 8081            # WebSocket gateway port (/ws/market-data, /ws/trades)
+
+exchange:
+  ws_url: "ws://localhost:8080/ws/market-data"  # Exchange simulator WebSocket endpoint
+  reconnect_delay_s: 1.0
+  max_reconnect_delay_s: 30.0
+
+storage:
+  output_dir: "data/ticks"   # Root directory for Parquet output
+  buffer_size: 10000         # In-memory buffer ticks before flush
+  flush_interval_s: 5.0      # Periodic flush interval (seconds)
+  max_file_ticks: 500000     # Rotate Parquet file after this many ticks
+
+# Map from exchange SymbolId (uint16) to human-readable symbol name
+# Must match --symbol flag used when launching exchange_sim
+symbol_map:
+  0: "AAPL"
+  1: "MSFT"
+  2: "TSLA"
+  3: "NVDA"
+
+logging:
+  level: "info"    # debug | info | warn | error
+  format: "json"   # json | console
