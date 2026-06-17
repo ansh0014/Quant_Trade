@@ -2,7 +2,7 @@
 
 #include "csv_parser.hpp"
 
-#include "../../../core-cpp/include/matching_engine/matching_engine.hpp"
+#include "../../core-cpp/include/matching_engine/matching_engine.hpp"
 
 #include <chrono>
 #include <thread>
@@ -65,27 +65,32 @@ private:
         {
             case ReplayEventType::NEW_ORDER:
             {
-                auto result =
-                    engine.match_order(
-                        event.order);
+                MatchResult result;
+                engine.submit_order(
+                    event.order, result,
+                    event.timestamp_ns);
 
-                for(const auto& trade :
-                    result.trades)
+                for (uint32_t i = 0; i < result.count; ++i)
                 {
-                    std::cout
-                        << "TRADE "
-                        << trade.trade_id
-                        << " "
-                        << trade.quantity
-                        << "@"
-                        << trade.price
-                        << "\n";
+                    const auto& rpt = result.reports[i];
+                    if (rpt.executed_qty == 0) continue;
+                    std::printf(
+                        "TRADE %-6lu  %u@%u  oid=%lu\n",
+                        static_cast<unsigned long>(rpt.trade_id),
+                        rpt.executed_qty,
+                        rpt.executed_price,
+                        static_cast<unsigned long>(rpt.order_id));
                 }
-
                 break;
             }
 
             case ReplayEventType::CANCEL_ORDER:
+                engine.cancel_order(
+                    event.order.symbol_id,
+                    event.order.order_id,
+                    event.order.client_id,
+                    event.order.sequence,
+                    event.timestamp_ns);
                 break;
         }
     }

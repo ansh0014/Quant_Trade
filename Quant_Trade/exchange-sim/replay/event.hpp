@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../core-cpp/include/common/types.hpp"
+#include "../../core-cpp/include/common/types.hpp"
 
 namespace hft {
 
