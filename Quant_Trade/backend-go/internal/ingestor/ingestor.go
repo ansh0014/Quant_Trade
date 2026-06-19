@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/anshul/hft/backend/generated/proto/marketdata"
+
 	"github.com/anshul/hft/backend/internal/config"
 	"github.com/anshul/hft/backend/internal/hub"
 	"github.com/anshul/hft/backend/internal/storage"
@@ -15,18 +15,20 @@ type Ingestor struct {
 	cfg       config.ExchangeConfig
 	symbolMap map[uint16]string
 	hub       *hub.Hub
+	tradeHub  *hub.TradeHub         
 	writer    *storage.ParquetWriter
 	validator *TickValidator
 	logger    *zap.Logger
 }
 
-func NewIngestor(cfg config.ExchangeConfig, symbolMap map[uint16]string, h *hub.Hub, w *storage.ParquetWriter, logger *zap.Logger) *Ingestor {
-	// Standard validation thresholds: 500bps spread, 5% max price jump
+func NewIngestor(cfg config.ExchangeConfig, symbolMap map[uint16]string,
+	h *hub.Hub, th *hub.TradeHub, w *storage.ParquetWriter, logger *zap.Logger) *Ingestor {
 	validator := NewTickValidator(500.0, 5.0, 0.0, logger)
 	return &Ingestor{
 		cfg:       cfg,
 		symbolMap: symbolMap,
 		hub:       h,
+		tradeHub:  th,
 		writer:    w,
 		validator: validator,
 		logger:    logger,
@@ -34,28 +36,10 @@ func NewIngestor(cfg config.ExchangeConfig, symbolMap map[uint16]string, h *hub.
 }
 
 func (n *Ingestor) Run(ctx context.Context) {
-	client := NewWSClient(n.cfg, n.logger)
-	msgChan := client.Start(ctx)
 
-	n.logger.Info("Ingestor background routine started")
-
-	for {
-		select {
-		case <-ctx.Done():
-			n.validator.Report()
-			n.logger.Info("Ingestor background routine stopped")
-			return
-		case msg, ok := <-msgChan:
-			if !ok {
-				return
-			}
-			n.processMessage(msg)
-		}
-	}
 }
 
 func (n *Ingestor) processMessage(msg []byte) {
-	// Detect message type first to distinguish between ticks and trades
 	var meta struct {
 		Type string `json:"type"`
 	}
@@ -65,41 +49,29 @@ func (n *Ingestor) processMessage(msg []byte) {
 	}
 
 	if meta.Type == "tick" {
-		raw, err := ParseRawTick(msg)
+	}
+
+	if meta.Type == "trade" {          
+		raw, err := ParseRawTrade(msg)
 		if err != nil {
-			n.logger.Error("Failed to parse raw exchange tick", zap.Error(err))
+			n.logger.Error("Failed to parse raw exchange trade", zap.Error(err))
 			return
 		}
-
 		symbolStr, exists := n.symbolMap[raw.SymbolID]
 		if !exists {
-			n.logger.Warn("Received tick with unregistered SymbolID", zap.Uint16("symbol_id", raw.SymbolID))
+			n.logger.Warn("Received trade with unregistered SymbolID", zap.Uint16("symbol_id", raw.SymbolID))
 			return
 		}
-
-		// Convert C++ integer scales into standard double/float values
-		tick := &marketdata.Tick{
+		trade := &hub.Trade{
 			TimestampNs: raw.TimestampNs,
 			Symbol:      symbolStr,
-			Bid:         float64(raw.BestBidPrice),
-			Ask:         float64(raw.BestAskPrice),
-			BidSz:       float64(raw.BestBidQty),
-			AskSz:       float64(raw.BestAskQty),
-			LastPrice:   float64(raw.LastTradePrice),
-			Volume:      float64(raw.Volume),
+			TradeID:     raw.TradeID,
+			Price:       float64(raw.Price),
+			Quantity:    float64(raw.Quantity),
+			BidOrderID:  raw.BidOrderID,
+			AskOrderID:  raw.AskOrderID,
 			Sequence:    raw.Sequence,
-			SeqGap:      false,
 		}
-
-		res := n.validator.Validate(tick)
-		if !res.Valid {
-			return // Dropped and logged inside validator
-		}
-
-		// Save tick to Parquet storage
-		n.writer.Add(tick)
-
-		// Broadcast tick to live subscribers
-		n.hub.Broadcast(tick)
+		n.tradeHub.Broadcast(trade)
 	}
 }

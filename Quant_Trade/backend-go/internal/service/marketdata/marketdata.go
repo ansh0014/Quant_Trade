@@ -27,7 +27,7 @@ func New(tickHub *hub.Hub, tradeHub *hub.TradeHub, reader *storage.ParquetReader
 	}
 }
 
-// TickJSON matches ml/data_gathering/schema.py from_ws_message().
+
 type TickJSON struct {
 	Type        string  `json:"type"`
 	TimestampNs int64   `json:"timestamp_ns"`

@@ -3,7 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"net/http"
-	"sync"
+	
 	"time"
 
 	mdsvc "github.com/anshul/hft/backend/internal/service/marketdata"

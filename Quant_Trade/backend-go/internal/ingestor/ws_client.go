@@ -30,6 +30,23 @@ type WSClient struct {
 	msgChan    chan []byte
 	disconnect chan struct{}
 }
+type RawExchangeTrade struct {
+	Type        string `json:"type"`
+	SymbolID    uint16 `json:"symbol_id"`
+	TimestampNs int64  `json:"timestamp_ns"`
+	TradeID     uint64 `json:"trade_id"`
+	Price       uint32 `json:"price"`
+	Quantity    uint32 `json:"quantity"`
+	BidOrderID  uint64 `json:"bid_order_id"`
+	AskOrderID  uint64 `json:"ask_order_id"`
+	Sequence    int64  `json:"sequence"`
+}
+
+func ParseRawTrade(data []byte) (*RawExchangeTrade, error) {
+	var t RawExchangeTrade
+	err := json.Unmarshal(data, &t)
+	return &t, err
+}
 
 func NewWSClient(cfg config.ExchangeConfig, logger *zap.Logger) *WSClient {
 	return &WSClient{
@@ -107,7 +124,7 @@ func (c *WSClient) readMessages(ctx context.Context, conn *websocket.Conn) {
 			return
 		case c.msgChan <- message:
 		default:
-			// Buffer full, drop message to prevent blocking low latency loop
+
 			c.logger.Warn("Ingest message channel full, dropping incoming exchange message")
 		}
 	}

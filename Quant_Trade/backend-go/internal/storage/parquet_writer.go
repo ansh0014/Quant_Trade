@@ -86,7 +86,7 @@ func (w *ParquetWriter) Stop() {
 	}
 	close(w.stopChan)
 
-	// Final flush to ensure no ticks are left in buffer
+
 	w.Flush()
 }
 
@@ -110,7 +110,7 @@ func (w *ParquetWriter) Add(tick *marketdata.Tick) {
 	w.buffers[tick.Symbol] = append(w.buffers[tick.Symbol], pt)
 	w.totalFlushed++
 
-	// If buffer size limit exceeded, trigger immediate flush for this symbol in a non-blocking way
+
 	var totalBuffered int
 	for _, buf := range w.buffers {
 		totalBuffered += len(buf)
@@ -130,7 +130,7 @@ func (w *ParquetWriter) Flush() {
 			continue
 		}
 
-		// Partition ticks by date (YYYYMMDD) based on exchange timestamp
+
 		byDate := make(map[string][]ParquetTick)
 		for _, t := range ticks {
 			dateStr := time.Unix(0, t.TimestampNs).UTC().Format("20060102")
@@ -148,7 +148,7 @@ func (w *ParquetWriter) Flush() {
 			}
 		}
 
-		// Clear buffer for this symbol
+
 		w.buffers[symbol] = nil
 	}
 }
@@ -156,7 +156,7 @@ func (w *ParquetWriter) Flush() {
 func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTick) error {
 	key := fmt.Sprintf("%s_%s", symbol, dateStr)
 
-	// Determine output directory
+
 	dir := filepath.Join(w.cfg.OutputDir, symbol, dateStr)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -165,22 +165,14 @@ func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTi
 	partIdx := w.currentPart[key]
 	filePath := filepath.Join(dir, fmt.Sprintf("part_%04d.parquet", partIdx))
 
-	// Check if file exists to determine if we append or create fresh
-	var f *os.File
-	var err error
-	var writer *parquet.Writer
+if err:=w.writeFreshParquet(filePath, ticks); err != nil {
+	return err
+}
 
-	// Wait, parquet-go doesn't support appending easily to an existing closed file because of footer blocks.
-	// So we will open a new part or recreate it. In case we write to an existing part in the same run,
-	// we keep it open, or we write it. Wait! Since we flush periodically, we might write to the same part multiple times.
-	// A simple and reliable way is: read existing file, append new ticks, write new file (since buffer sizes are moderate).
-	// However, if the file already has 400,000 ticks, loading and rewriting is simple, but we must make sure we don't exceed max_file_ticks.
-	// Let's implement this by writing new parts or accumulating in memory. Or even better: open in append mode if supported, or read-rewrite.
-	// Since max_file_ticks is 500,000, read-rewrite is safe and robust, or we can just start a new part index when the counter rolls over!
 	
 	var existingTicks []ParquetTick
 	if _, err := os.Stat(filePath); err == nil {
-		// Read existing ticks
+	
 		existingTicks, err = w.readParquetFile(filePath)
 		if err != nil {
 			w.logger.Warn("Failed to read existing Parquet file for append, creating new one", zap.Error(err))
@@ -191,25 +183,22 @@ func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTi
 	allTicks := append(existingTicks, ticks...)
 	w.ticksWritten[key] = len(allTicks)
 
-	// Check rotation
+
 	if len(allTicks) > w.cfg.MaxFileTicks {
-		// We exceed the max limit! Split the ticks.
+	
 		keepTicks := allTicks[:w.cfg.MaxFileTicks]
 		spillTicks := allTicks[w.cfg.MaxFileTicks:]
 
-		// Write current file up to limit
-		err = w.writeFreshParquet(filePath, keepTicks)
-		if err != nil {
-			return err
-		}
+if err:=w.writeFreshParquet(filePath, keepTicks); err != nil {
+	return err
+}
 
-		// Rotate!
 		w.currentPart[key]++
 		partIdx = w.currentPart[key]
 		filePath = filepath.Join(dir, fmt.Sprintf("part_%04d.parquet", partIdx))
 		w.ticksWritten[key] = len(spillTicks)
 
-		// Write the spilled ticks to the new file
+
 		return w.writeFreshParquet(filePath, spillTicks)
 	}
 

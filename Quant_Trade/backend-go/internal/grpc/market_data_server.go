@@ -80,7 +80,7 @@ func (s *Server) StreamTicks(req *marketdata.StreamTicksRequest, stream marketda
 				return nil
 			}
 
-			// Apply symbol filter if requested
+		
 			if len(filterMap) > 0 {
 				if _, ok := filterMap[tick.Symbol]; !ok {
 					continue

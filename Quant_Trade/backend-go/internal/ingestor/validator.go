@@ -47,7 +47,6 @@ func (v *TickValidator) Validate(tick *marketdata.Tick) ValidationResult {
 
 	v.total++
 
-	// --- structural checks ---
 	if tick.Bid <= 0 || tick.Ask <= 0 {
 		return v.fail(tick, "non_positive_price")
 	}
@@ -68,13 +67,11 @@ func (v *TickValidator) Validate(tick *marketdata.Tick) ValidationResult {
 		return v.fail(tick, "negative_volume")
 	}
 
-	// --- spread sanity ---
 	spreadBps := ((tick.Ask - tick.Bid) / tick.Bid) * 10000
 	if spreadBps > v.maxSpreadBps {
 		return v.fail(tick, fmt.Sprintf("spread_too_wide_%.0fbps", spreadBps))
 	}
 
-	// --- price jump check ---
 	lastPx, ok := v.lastPrice[tick.Symbol]
 	if ok {
 		jumpPct := (math.Abs(tick.LastPrice-lastPx) / lastPx) * 100
@@ -83,8 +80,7 @@ func (v *TickValidator) Validate(tick *marketdata.Tick) ValidationResult {
 		}
 	}
 
-	// --- sequence gap check ---
-	// Sequence gap does not drop the tick. We set SeqGap=true.
+
 	lastSeq, ok := v.lastSeq[tick.Symbol]
 	if ok && tick.Sequence > lastSeq+1 {
 		missing := tick.Sequence - lastSeq - 1
@@ -99,7 +95,7 @@ func (v *TickValidator) Validate(tick *marketdata.Tick) ValidationResult {
 		)
 	}
 
-	// --- update state ---
+
 	v.lastPrice[tick.Symbol] = tick.LastPrice
 	v.lastSeq[tick.Symbol] = tick.Sequence
 	v.passed++
