@@ -56,3 +56,6 @@ func (h *Hub) Broadcast(tick *marketdata.Tick) {
 func (h *Hub) TotalBroadcasts() int64 {
 	return atomic.LoadInt64(&h.broadcastCount)
 }
+
+
+
