@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// ── QuantTrade Logo (inline, matches landing page) ────────────────────────────
+// ── QuantTrade Logo ────────────────────────────────────────────────────────────
 function Logo() {
   return (
     <div className="flex items-center gap-2">
@@ -16,15 +15,13 @@ function Logo() {
     </div>
   )
 }
-import { Activity, ArrowLeft, Shield, Brain, WifiOff, Wifi, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+
+import { Activity, ArrowLeft, Brain, WifiOff, Wifi, AlertTriangle, RefreshCw } from 'lucide-react'
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
 } from 'recharts'
 
 // ── Types matching Go backend WS output ───────────────────────────────────────
-// ws://localhost:8081/ws/market-data emits JSON ticks
-// ws://localhost:8081/ws/trades emits JSON trades
-
 interface Tick {
   timestamp_ns: number
   symbol: string
@@ -63,10 +60,10 @@ interface MLPrediction {
   connected: boolean
 }
 
-// ── WebSocket URL ─────────────────────────────────────────────────────────────
+// ── WebSocket endpoints ────────────────────────────────────────────────────────
 const WS_MARKET = 'ws://localhost:8081/ws/market-data'
 const WS_TRADES = 'ws://localhost:8081/ws/trades'
-const WS_ML = 'ws://localhost:8081/ws/ml-predictions'
+const WS_ML     = 'ws://localhost:8081/ws/ml-predictions'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number, d = 2) { return n.toFixed(d) }
@@ -101,7 +98,7 @@ function Empty({ label }: { label: string }) {
       <Label>{label}</Label>
       <div className="flex flex-col items-center justify-center py-6 gap-2">
         <WifiOff className="w-5 h-5 text-slate-700" />
-        <span className="text-[11px] font-mono text-slate-700">Awaiting connection</span>
+        <span className="text-[11px] font-mono text-slate-700">Awaiting data</span>
       </div>
     </Card>
   )
@@ -270,7 +267,7 @@ function TradeLog({ trades }: { trades: TradeEntry[] }) {
   if (trades.length === 0) return <Empty label="Trade Stream" />
   return (
     <Card className="overflow-hidden">
-      <Label>Trade Stream · /ws/trades</Label>
+      <Label>Trade Stream</Label>
       <div className="space-y-0.5 max-h-56 overflow-y-auto">
         {trades.slice(0, 16).map((t) => (
           <div key={t.id} className="flex items-center gap-2 text-[10px] font-mono py-0.5">
@@ -298,10 +295,10 @@ function StatusPanel({ connected, tickCount, tickRate }: {
 }) {
   return (
     <Card>
-      <Label>Connection Status</Label>
+      <Label>Connection</Label>
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-mono text-slate-500">Backend WS</span>
+          <span className="text-[11px] font-mono text-slate-500">Backend</span>
           <div className="flex items-center gap-1.5">
             {connected
               ? <><Wifi className="w-3.5 h-3.5 text-emerald-400" /><span className="text-[11px] font-mono text-emerald-400">LIVE</span></>
@@ -317,15 +314,44 @@ function StatusPanel({ connected, tickCount, tickRate }: {
           <span className="text-[11px] font-mono text-slate-500">Tick rate</span>
           <span className="text-[11px] font-mono text-blue-400">{tickRate}/s</span>
         </div>
-        {!connected && (
-          <div className="text-[10px] font-mono text-slate-600 pt-2 border-t border-white/5 leading-relaxed">
-            Start Go backend:<br />
-            <code className="text-blue-500/70">server.exe --config configs/dev.yaml</code><br />
-            then run C++ exchange sim in WSL.
-          </div>
-        )}
       </div>
     </Card>
+  )
+}
+
+// ── Offline overlay ───────────────────────────────────────────────────────────
+function OfflineOverlay({ onRetry }: { onRetry: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+      className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-[#0a0a0a]/90 backdrop-blur-sm"
+    >
+      {/* Pulsing ring */}
+      <div className="relative mb-6">
+        <motion.div
+          animate={{ scale: [1, 1.6], opacity: [0.15, 0] }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'easeOut' }}
+          className="absolute inset-0 rounded-full border border-slate-600"
+        />
+        <div className="w-12 h-12 rounded-full border border-[#1e1e1e] bg-[#111] flex items-center justify-center">
+          <WifiOff className="w-5 h-5 text-slate-600" />
+        </div>
+      </div>
+
+      <h2 className="text-sm font-bold text-[#555] font-mono mb-1">Backend Offline</h2>
+      <p className="text-[11px] font-mono text-[#333] mb-5">Auto-reconnecting every 3 seconds…</p>
+
+      <button
+        onClick={onRetry}
+        className="flex items-center gap-1.5 px-4 py-2 rounded border border-[#2a2a2a] text-[11px] font-mono text-[#555] hover:text-[#888] hover:border-[#333] transition-colors"
+      >
+        <RefreshCw className="w-3 h-3" />
+        Retry now
+      </button>
+    </motion.div>
   )
 }
 
@@ -340,11 +366,22 @@ export default function DashboardPage() {
   const [tickCount, setTickCount] = useState(0)
   const [tickRate, setTickRate] = useState(0)
   const [seqGapWarning, setSeqGapWarning] = useState(false)
+  const [showOffline, setShowOffline] = useState(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const wsTradesRef = useRef<WebSocket | null>(null)
   const tickBucket = useRef(0)
   const tradeIdRef = useRef(0)
+
+  // Delay showing offline overlay by 2s to avoid flicker on initial load
+  useEffect(() => {
+    if (connected) {
+      setShowOffline(false)
+      return
+    }
+    const timer = setTimeout(() => setShowOffline(true), 2000)
+    return () => clearTimeout(timer)
+  }, [connected])
 
   // Tick rate counter — refresh every second
   useEffect(() => {
@@ -443,7 +480,7 @@ export default function DashboardPage() {
     } catch { /* ws not available */ }
   }, [])
 
-  const [benchmarks, setBenchmarks] = useState<Record<string, any>>({})
+  const [benchmarks, setBenchmarks] = useState<Record<string, string | number>>({})
 
   useEffect(() => {
     const fetchBenchmarks = async () => {
@@ -459,6 +496,12 @@ export default function DashboardPage() {
     const interval = setInterval(fetchBenchmarks, 3000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleRetry = useCallback(() => {
+    connectMarket()
+    connectTrades()
+    connectML()
+  }, [connectMarket, connectTrades, connectML])
 
   useEffect(() => {
     connectMarket()
@@ -482,10 +525,10 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 border-b border-[#1e1e1e] bg-[#0a0a0a] sticky top-0 z-50 h-12">
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-1.5 text-[#555] hover:text-[#aaa] transition-colors">
+          <a href="/" className="flex items-center gap-1.5 text-[#555] hover:text-[#aaa] transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" />
             <span className="text-[11px] font-mono">Back</span>
-          </Link>
+          </a>
           <div className="w-px h-4 bg-[#1e1e1e]" />
           <Logo />
         </div>
@@ -530,20 +573,15 @@ export default function DashboardPage() {
             className="px-4 py-2 bg-[#F0730A]/10 border-b border-[#F0730A]/20 text-[11px] font-mono text-[#F0730A] flex items-center gap-2"
           >
             <AlertTriangle className="w-3.5 h-3.5" />
-            SEQ GAP — ML pipeline will mask this tick (seq_gap = true)
+            Sequence gap detected — ML pipeline will mask this tick
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Disconnected full-page overlay */}
-      {!connected && (
-        <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-[#0a0a0a]/96 pointer-events-none">
-          <WifiOff className="w-8 h-8 text-[#2a2a2a] mb-4" />
-          <h2 className="text-base font-bold text-[#444] mb-2 font-mono">OFFLINE</h2>
-          <p className="text-[11px] font-mono text-[#333] mb-1">{WS_MARKET}</p>
-          <p className="text-[10px] font-mono text-[#2a2a2a]">Start Go backend + C++ exchange sim, then reload</p>
-        </div>
-      )}
+      {/* Offline overlay — shown after 2s delay, non-blocking */}
+      <AnimatePresence>
+        {showOffline && <OfflineOverlay onRetry={handleRetry} />}
+      </AnimatePresence>
 
       {/* Grid */}
       <main className="flex-1 p-3 md:p-4">
@@ -568,11 +606,11 @@ export default function DashboardPage() {
 
             {/* ML Inference Card */}
             <Card>
-              <Label>ML Inference · XGBoost / gRPC</Label>
+              <Label>ML Inference · XGBoost</Label>
               {mlPred && mlPred.connected ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-slate-500">gRPC Server</span>
+                    <span className="text-[10px] font-mono text-slate-500">Inference Engine</span>
                     <span className="text-[10px] font-mono text-emerald-400 font-bold">ONLINE</span>
                   </div>
                   {mlPred.type === 'ml_prediction' ? (
@@ -598,7 +636,7 @@ export default function DashboardPage() {
                     </>
                   ) : (
                     <div className="text-[10px] font-mono text-slate-400 text-center py-1">
-                      Awaiting tick inference...
+                      Awaiting inference…
                     </div>
                   )}
                 </div>
@@ -606,8 +644,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center py-4 gap-2">
                   <Brain className="w-5 h-5 text-slate-700" />
                   <span className="text-[11px] font-mono text-slate-600 text-center">
-                    Connect Python gRPC server<br />
-                    <code className="text-blue-500/50 text-[10px]">ml.inference.server · :50051</code>
+                    ML engine offline
                   </span>
                 </div>
               )}
@@ -615,7 +652,7 @@ export default function DashboardPage() {
 
             {/* Risk engine card */}
             <Card>
-              <Label>Pre-Trade Risk Engine · C++</Label>
+              <Label>Pre-Trade Risk Engine</Label>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-mono">
                   <span className="text-slate-500">Circuit Breaker</span>
@@ -631,32 +668,36 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono pt-1.5 border-t border-white/5">
                   <span className="text-slate-500">Pre-Trade Latency</span>
-                  <span className="text-blue-400 font-bold">74.92 ns</span>
+                  <span className="text-blue-400 font-bold">
+                    {benchmarks.risk_p99 ? String(benchmarks.risk_p99) : '—'}
+                  </span>
                 </div>
               </div>
             </Card>
 
-            {/* Real benchmark quick-ref */}
+            {/* Benchmark results */}
             <Card>
-              <Label>C++ & System Benchmark Results</Label>
+              <Label>C++ Benchmark Results</Label>
               <div className="space-y-2">
                 {[
-                  { k: 'Host CPU Cores', v: benchmarks.cpu_cores ? `${benchmarks.cpu_cores} Cores` : 'Detecting...' },
-                  { k: 'RAM Allocated', v: benchmarks.memory_alloc_mb ?? '45.20 MB' },
-                  { k: 'Risk P99', v: benchmarks.risk_p99 ?? '74.92 ns' },
-                  { k: 'Risk P99.9', v: benchmarks.risk_p999 ?? '141 ns' },
-                  { k: 'Throughput', v: benchmarks.throughput ?? '10.35 M/s' },
-                  { k: 'Order build', v: benchmarks.order_build ?? '8.33 ns' },
-                  { k: 'Matching avg', v: benchmarks.matching_avg ?? '314 ns' },
+                  { k: 'CPU Cores', v: benchmarks.cpu_cores ? `${benchmarks.cpu_cores} Cores` : '—' },
+                  { k: 'RAM Allocated', v: benchmarks.memory_alloc_mb ? String(benchmarks.memory_alloc_mb) : '—' },
+                  { k: 'Risk P99', v: benchmarks.risk_p99 ? String(benchmarks.risk_p99) : '—' },
+                  { k: 'Risk P99.9', v: benchmarks.risk_p999 ? String(benchmarks.risk_p999) : '—' },
+                  { k: 'Throughput', v: benchmarks.throughput ? String(benchmarks.throughput) : '—' },
+                  { k: 'Order Build', v: benchmarks.order_build ? String(benchmarks.order_build) : '—' },
+                  { k: 'Matching Avg', v: benchmarks.matching_avg ? String(benchmarks.matching_avg) : '—' },
                 ].map((r) => (
                   <div key={r.k} className="flex justify-between items-center">
                     <span className="text-[10px] font-mono text-slate-600">{r.k}</span>
                     <span className="text-[10px] font-mono text-blue-400 font-bold">{r.v}</span>
                   </div>
                 ))}
-                <div className="text-[9px] font-mono text-slate-700 pt-2 border-t border-white/5">
-                  {benchmarks.compiler ?? 'GCC 13.3 · -O3 -march=native'}
-                </div>
+                {benchmarks.compiler && (
+                  <div className="text-[9px] font-mono text-slate-700 pt-2 border-t border-white/5">
+                    {String(benchmarks.compiler)}
+                  </div>
+                )}
               </div>
             </Card>
 
