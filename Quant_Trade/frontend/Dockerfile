@@ -6,8 +6,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm (pinned to version 9 to match pnpm-lock.yaml lockfileVersion: '9.0')
+RUN npm install -g pnpm@9
 
 # Copy lockfile and package.json from frontend directory
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
@@ -16,7 +16,7 @@ RUN pnpm install --frozen-lockfile
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 
