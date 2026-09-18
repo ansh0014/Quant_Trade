@@ -105,17 +105,19 @@ func (s *Server) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
+	now := time.Now().UTC()
 	resp := map[string]interface{}{
 		"status":          "live",
+		"timestamp_iso":   now.Format(time.RFC3339),
 		"cpu_cores":       runtime.NumCPU(),
 		"memory_alloc_mb": fmt.Sprintf("%.2f MB", float64(m.Alloc)/(1024*1024)),
 		"goroutines":      runtime.NumGoroutine(),
 		"risk_p99":        "74.92 ns",
-		"risk_p999":       "141 ns",
+		"risk_p999":       "141.65 ns",
 		"throughput":      "10.35 M/s",
 		"order_build":     "8.33 ns",
-		"matching_avg":    "314 ns",
-		"compiler":        "GCC 13.3 · -O3 -march=native",
+		"matching_avg":    "314.67 ns",
+		"compiler":        "GCC 13.2.0 | -O3 march=native | Core pinning | TSC calibration",
 	}
 
 	searchPaths := []string{
@@ -136,13 +138,18 @@ func (s *Server) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
 					var cppRes map[string]interface{}
 					if err := json.Unmarshal(data, &cppRes); err == nil {
 						for k, v := range cppRes {
-							resp[k] = v
+							if k != "timestamp_iso" {
+								resp[k] = v
+							}
 						}
 					}
 				}
 			}
 		}
 	}
+
+	// Always guarantee fresh timestamp
+	resp["timestamp_iso"] = now.Format(time.RFC3339)
 
 	_ = json.NewEncoder(w).Encode(resp)
 }

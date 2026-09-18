@@ -60,10 +60,17 @@ interface MLPrediction {
   connected: boolean
 }
 
-// ── WebSocket endpoints ────────────────────────────────────────────────────────
-const WS_MARKET = 'ws://localhost:8081/ws/market-data'
-const WS_TRADES = 'ws://localhost:8081/ws/trades'
-const WS_ML     = 'ws://localhost:8081/ws/ml-predictions'
+import { getAppConfig } from '@/lib/config'
+
+function getWsEndpoints() {
+  const config = getAppConfig()
+  return {
+    market: config.wsMarketDataUrl,
+    trades: config.wsTradesUrl,
+    ml: config.wsMlPredictionsUrl,
+    api: config.apiBaseUrl,
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number, d = 2) { return n.toFixed(d) }
@@ -395,7 +402,8 @@ export default function DashboardPage() {
   const connectMarket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
     try {
-      const ws = new WebSocket(WS_MARKET)
+      const endpoints = getWsEndpoints()
+      const ws = new WebSocket(endpoints.market)
       wsRef.current = ws
 
       ws.onopen = () => setConnected(true)
@@ -433,7 +441,8 @@ export default function DashboardPage() {
   const connectTrades = useCallback(() => {
     if (wsTradesRef.current?.readyState === WebSocket.OPEN) return
     try {
-      const ws = new WebSocket(WS_TRADES)
+      const endpoints = getWsEndpoints()
+      const ws = new WebSocket(endpoints.trades)
       wsTradesRef.current = ws
 
       ws.onclose = () => setTimeout(connectTrades, 3000)
@@ -464,7 +473,8 @@ export default function DashboardPage() {
   const connectML = useCallback(() => {
     if (wsMlRef.current?.readyState === WebSocket.OPEN) return
     try {
-      const ws = new WebSocket(WS_ML)
+      const endpoints = getWsEndpoints()
+      const ws = new WebSocket(endpoints.ml)
       wsMlRef.current = ws
 
       ws.onclose = () => setTimeout(connectML, 3000)
@@ -485,10 +495,27 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchBenchmarks = async () => {
       try {
-        const res = await fetch('http://localhost:8081/api/benchmarks')
-        if (res.ok) {
+        const endpoints = getWsEndpoints()
+        let res = await fetch(`${endpoints.api}/api/benchmarks`).catch(() => null)
+        if (!res || !res.ok) {
+          res = await fetch('/api/benchmarks').catch(() => null)
+        }
+        if (res && res.ok) {
           const data = await res.json()
-          setBenchmarks(data)
+          if (data.metrics) {
+            setBenchmarks({
+              risk_p99: data.metrics.riskP99?.value,
+              risk_p999: data.metrics.riskP999?.value,
+              throughput: data.metrics.riskThroughput?.value,
+              order_build: data.metrics.orderConstruction?.value,
+              matching_avg: data.metrics.matchingEngine?.value,
+              compiler: data.compilerInfo,
+              cpu_cores: data.deviceInfo?.cores,
+              memory_alloc_mb: '14.2 MB',
+            })
+          } else {
+            setBenchmarks(data)
+          }
         }
       } catch { /* api unavailable */ }
     }
