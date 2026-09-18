@@ -342,13 +342,8 @@ export default function LandingPage() {
 
       {/* ── Footer ────────────────────────────────────────────────────── */}
       <footer className="w-full border-t border-[#1a1a1a] bg-[#0a0a0a] py-6 text-[10px] font-mono text-[#444444]">
-        <div className="max-w-7xl mx-auto px-6 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>QuantTrade Platform · C++20 · Go 1.22 · Python 3.11 · Kubernetes</div>
-          <div className="flex items-center gap-4">
-            <span>DOKS Deep Ocean Cluster</span>
-            <span>•</span>
-            <span>TSC Calibrated</span>
-          </div>
+        <div className="max-w-7xl mx-auto px-6 sm:px-8 flex items-center justify-between">
+          <div>QuantTrade Platform</div>
         </div>
       </footer>
     </div>
