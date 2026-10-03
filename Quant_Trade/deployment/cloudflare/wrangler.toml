@@ -1,0 +1,8 @@
+name = "quanttrade-edge-backend"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Production route triggers (uncomment when domain is attached in Cloudflare)
+# routes = [
+#   { pattern = "api.quanttrade.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]

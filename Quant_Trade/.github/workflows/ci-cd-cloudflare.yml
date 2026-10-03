@@ -1,0 +1,58 @@
+name: QuantTrade — Cloudflare & Vercel CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ============================================================================
+  # 1. Run Unit Tests (C++, Go, Python, TypeScript)
+  # ============================================================================
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Go Unit Tests
+        run: |
+          cd Quant_Trade/backend-go
+          go vet ./...
+          go test ./...
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Frontend Typecheck
+        run: |
+          cd Quant_Trade/frontend
+          npm install -g pnpm
+          pnpm install --no-frozen-lockfile
+          npx tsc --noEmit
+
+  # ============================================================================
+  # 2. Deploy Cloudflare Worker API Gateway
+  # ============================================================================
+  deploy-cloudflare-worker:
+    name: Deploy Cloudflare Worker Gateway
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: 'Quant_Trade/deployment/cloudflare'
+

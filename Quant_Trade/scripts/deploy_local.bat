@@ -56,9 +56,11 @@ minikube status --format "{{.Host}}" 2>nul | findstr /i "Running" >nul 2>&1
 if errorlevel 1 (
     echo   Minikube is not running. Starting it now...
     minikube start
+    minikube start --cpus=4 --memory=8192 --disk-size=20g
     if errorlevel 1 ( echo   [ERROR] Failed to start Minikube. & exit /b 1 )
 ) else (
     echo   Minikube is already running. OK
+    echo   Minikube is already running with sufficient resources (4 CPUs, 8GB RAM). OK
 )
 echo.
 
