@@ -21,6 +21,8 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
 } from 'recharts'
 
+import { executeLiveBenchmark } from '@/lib/benchmark'
+
 // ── Types matching Go backend WS output ───────────────────────────────────────
 interface Tick {
   timestamp_ns: number
@@ -511,16 +513,20 @@ export default function DashboardPage() {
               matching_avg: data.metrics.matchingEngine?.value,
               compiler: data.compilerInfo,
               cpu_cores: data.deviceInfo?.cores,
-              memory_alloc_mb: '14.2 MB',
+              memory_alloc_mb: data.memory_alloc_mb,
             })
           } else {
             setBenchmarks(data)
           }
+        } else {
+          setBenchmarks({})
         }
-      } catch { /* api unavailable */ }
+      } catch {
+        setBenchmarks({})
+      }
     }
     fetchBenchmarks()
-    const interval = setInterval(fetchBenchmarks, 3000)
+    const interval = setInterval(fetchBenchmarks, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -683,15 +689,21 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-mono">
                   <span className="text-slate-500">Circuit Breaker</span>
-                  <span className="text-emerald-400 font-bold">PASS</span>
+                  <span className={connected ? "text-emerald-400 font-bold" : "text-slate-600 font-bold"}>
+                    {connected ? "PASS" : "—"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono">
                   <span className="text-slate-500">Price Collar (±50)</span>
-                  <span className="text-emerald-400 font-bold">PASS</span>
+                  <span className={connected ? "text-emerald-400 font-bold" : "text-slate-600 font-bold"}>
+                    {connected ? "PASS" : "—"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono">
                   <span className="text-slate-500">Max Order Qty</span>
-                  <span className="text-emerald-400 font-bold">PASS</span>
+                  <span className={connected ? "text-emerald-400 font-bold" : "text-slate-600 font-bold"}>
+                    {connected ? "PASS" : "—"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono pt-1.5 border-t border-white/5">
                   <span className="text-slate-500">Pre-Trade Latency</span>
