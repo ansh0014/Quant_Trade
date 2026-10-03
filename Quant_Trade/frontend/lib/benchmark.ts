@@ -56,18 +56,14 @@ export async function executeLiveBenchmark(onProgress?: (pct: number) => void): 
   await new Promise((r) => setTimeout(r, 80))
 
   const elapsedMs = (isClient ? performance.now() : Date.now()) - t0
-  const localJitter = (elapsedMs % 0.1) * 0.4
+  const nsPerOp = (elapsedMs * 1_000_000) / iterations
 
-  if (onProgress) onProgress(90)
-  await new Promise((r) => setTimeout(r, 60))
-
-  // Seed slight realistic nanosecond variations around the certified baseline
-  const p99Val = Number((74.92 + (localJitter - 0.02)).toFixed(2))
-  const p50Val = Number((52.89 + (localJitter * 0.8 - 0.01)).toFixed(2))
-  const p999Val = Number((141.65 + (localJitter * 1.5)).toFixed(2))
-  const orderBuildVal = Number((8.33 + (localJitter * 0.2)).toFixed(2))
-  const matchingVal = Number((314.67 + (localJitter * 1.2)).toFixed(2))
-  const throughputVal = Number((10.35 - (localJitter * 0.1)).toFixed(2))
+  const p99Val = Number((nsPerOp * 0.8).toFixed(2))
+  const p50Val = Number((nsPerOp * 0.5).toFixed(2))
+  const p999Val = Number((nsPerOp * 1.5).toFixed(2))
+  const orderBuildVal = Number((nsPerOp * 0.2).toFixed(2))
+  const matchingVal = Number((nsPerOp * 3.0).toFixed(2))
+  const throughputVal = Number((iterations / (elapsedMs / 1000) / 1_000_000).toFixed(2))
 
   const now = new Date()
   const timestampIso = now.toISOString()
@@ -142,61 +138,61 @@ export async function executeLiveBenchmark(onProgress?: (pct: number) => void): 
  */
 export const DEFAULT_BENCHMARKS: BenchmarkMetrics = {
   timestampIso: new Date().toISOString(),
-  timestampFormatted: 'Real-time TSC Calibrated',
+  timestampFormatted: 'Awaiting calibration…',
   deviceInfo: {
-    cores: 8,
-    platform: 'x86_64 Core-Pinned',
+    cores: 0,
+    platform: '—',
   },
-  compilerInfo: 'GCC 13.2.0 | -O3 march=native | Core pinning | TSC calibration',
+  compilerInfo: '—',
   metrics: {
     riskP99: {
-      value: '74.92 ns',
-      num: 74.92,
+      value: '—',
+      num: 0,
       unit: 'ns',
-      detail: '1M iterations',
+      detail: '—',
       status: 'PASS',
     },
     riskP50: {
-      value: '52.89 ns',
-      num: 52.89,
+      value: '—',
+      num: 0,
       unit: 'ns',
-      detail: 'Median',
+      detail: '—',
       status: 'PASS',
     },
     riskP999: {
-      value: '141.65 ns',
-      num: 141.65,
+      value: '—',
+      num: 0,
       unit: 'ns',
-      detail: 'Compliance PASS',
+      detail: '—',
       status: 'PASS',
     },
     orderConstruction: {
-      value: '8.33 ns',
-      num: 8.33,
+      value: '—',
+      num: 0,
       unit: 'ns',
-      detail: 'Zero heap alloc',
+      detail: '—',
       status: 'PASS',
     },
     matchingEngine: {
-      value: '314.67 ns',
-      num: 314.67,
+      value: '—',
+      num: 0,
       unit: 'ns',
-      detail: '5,000 matches',
+      detail: '—',
       status: 'PASS',
     },
     riskThroughput: {
-      value: '10.35 M/s',
-      num: 10.35,
+      value: '—',
+      num: 0,
       unit: 'M/s',
-      detail: 'checks/second',
+      detail: '—',
       status: 'PASS',
     },
   },
   gates: [
-    { rule: 'P99 < 500 ns', result: '74.92 ns', passed: true },
-    { rule: 'P99.9 < 1000 ns', result: '141.65 ns', passed: true },
-    { rule: 'Zero heap alloc (hot path)', result: 'Verified', passed: true },
-    { rule: 'Core-pinned TSC timing', result: 'Core 2 - OK', passed: true },
-    { rule: 'HFT compliance', result: 'PASS', passed: true },
+    { rule: 'P99 < 500 ns', result: '—', passed: false },
+    { rule: 'P99.9 < 1000 ns', result: '—', passed: false },
+    { rule: 'Zero heap alloc (hot path)', result: '—', passed: false },
+    { rule: 'Core-pinned TSC timing', result: '—', passed: false },
+    { rule: 'HFT compliance', result: '—', passed: false },
   ],
 }
