@@ -50,11 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: 'Quant_Trade/deployment/cloudflare'
-          command: deploy
+          node-version: 20
+
+      - name: Deploy to Cloudflare Workers
+        working-directory: 'Quant_Trade/deployment/cloudflare'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 'e72744b2d9ac00256215b43730fa41d6'
+        run: npx wrangler deploy
+
 
