@@ -115,3 +115,8 @@ config.local.*
 
 
 *.bak
+
+# Cloudflare Wrangler Cache
+.wrangler/
+.wrangler
+

@@ -36,7 +36,7 @@ jobs:
         run: |
           cd Quant_Trade/frontend
           npm install -g pnpm
-          pnpm install --no-frozen-lockfile
+          pnpm install --no-frozen-lockfile --ignore-scripts
           npx tsc --noEmit
 
   # ============================================================================
