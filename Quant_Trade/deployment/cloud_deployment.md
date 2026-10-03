@@ -1,68 +1,72 @@
-# 100% Serverless Edge Architecture — Cloudflare Workers & Vercel ($0.00 Cost)
+# Deployment — Vercel + Cloudflare Worker proxy + real backend
 
-This document details the production deployment strategy for hosting the entire **QuantTrade HFT Platform** on **Cloudflare Workers** (Backend & WebSockets) and **Vercel** (Frontend UI) for **$0.00 total monthly cost**.
-
----
-
-## 1. High-Level Architecture Diagram
+## 1. Architecture
 
 ```mermaid
-flowchart TD
-    Client["Browser / User"] -->|1. HTTPS UI Traffic| Vercel["Vercel Edge Network (React Dashboard) - FREE"]
-    Client -->|2. WSS & REST API Traffic| CFWorker["Cloudflare Worker (Serverless Edge Engine) - FREE"]
-    
-    subgraph EdgeEngine["Cloudflare Worker Edge Engine ($0 Cost - Laptop OFF 24/7)"]
-        MarketWS["WebSocket Publisher (/ws/market-data)"]
-        TradesWS["Trade Stream Publisher (/ws/trades)"]
-        MlWS["XGBoost Signal Publisher (/ws/ml-predictions)"]
-        BenchAPI["Benchmark REST API (/api/benchmarks)"]
-    end
-    
-    CFWorker --> MarketWS
-    CFWorker --> TradesWS
-    CFWorker --> MlWS
-    CFWorker --> BenchAPI
+flowchart LR
+    Browser["Browser"] -->|HTTPS| Vercel["Vercel: Next.js dashboard"]
+    Browser -->|WSS / REST| Worker["Cloudflare Worker: proxy only"]
+    Worker -->|BACKEND_URL via Cloudflare Tunnel| Go["Go backend :8081"]
+    Sim["C++ exchange-sim :8080"] --> Go
+    ML["Python XGBoost server :50051"] --> Go
 ```
 
----
+| Part | Where it runs | Notes |
+| :--- | :--- | :--- |
+| Frontend | Vercel (free) | Root Directory: `Quant_Trade/frontend` |
+| Worker | Cloudflare (free) | **Generates no data.** It only forwards `/ws/*` and `/api/*` to `BACKEND_URL`. If unset or unreachable it returns 503 and the dashboard shows "Backend Offline". |
+| Go backend, C++ exchange-sim, Python ML | **Your machine or a server** | These cannot run on Cloudflare Workers (native processes). |
 
-## 2. Component Breakdown
+> The exchange-sim is a market **simulator**. The numbers are real output of this
+> engine, but the market itself is simulated.
 
-| Service | Environment | Cost | Description |
-| :--- | :--- | :---: | :--- |
-| **Frontend UI** | Vercel Edge | **$0.00** | React / Next.js live dashboard, pipeline animations, and benchmark metrics. |
-| **Backend & WS Stream** | Cloudflare Workers | **$0.00** | Full serverless backend handling WebSockets, CORS, and API endpoints. |
-| **ML Inference** | Cloudflare Workers / ONNX | **$0.00** | Real-time XGBoost price direction signals (`/ws/ml-predictions`). |
+## 2. Run the real backend (WSL or Linux)
 
----
+```bash
+cd /mnt/d/hft/Quant_Trade/Quant_Trade
+make run     # build + start ML server, Go backend, recorder, exchange-sim
+make tail    # logs
+make stop    # stop everything
+```
 
-## 3. How to Deploy (1-Click Deployment)
+Check: `http://localhost:8081/health`
 
-### **Step 1: Deploy Cloudflare Worker Backend**
-1. Open your terminal and run:
-   ```bash
-   cd Quant_Trade/deployment/cloudflare
-   npx wrangler deploy
-   ```
-2. Copy the generated Cloudflare Worker URL from the terminal output:
-   *(e.g., `quanttrade-edge-backend.your-subdomain.workers.dev`)*.
+## 3. Expose it with Cloudflare Tunnel (free)
 
----
+```powershell
+winget install Cloudflare.cloudflared
+cloudflared tunnel --url http://localhost:8081
+```
 
-### **Step 2: Deploy Frontend to Vercel (100% FREE)**
-1. Import your GitHub repository into [Vercel](https://vercel.com).
-2. Set **Root Directory** to `frontend`.
-3. Add Environment Variable:
-   ```env
-   NEXT_PUBLIC_BACKEND_HOST=quanttrade-edge-backend.your-subdomain.workers.dev
-   ```
-4. Click **Deploy**.
+Copy the printed `https://....trycloudflare.com` URL. It changes on every restart.
 
----
+## 4. Point the Worker at it
 
-## 4. Why This Architecture Wins
+In `deployment/cloudflare/wrangler.toml`:
 
-- 💸 **$0.00 Monthly Bill** (100,000 free requests per day on Cloudflare + unlimited Vercel free tier).
-- 💻 **Laptop Status: OFF 24/7** (Zero local processes, zero Minikube overhead, zero battery/CPU drain).
-- 🔒 **Instant SSL/TLS (HTTPS & WSS)** automatically provided on all endpoints.
-- ⚡ **Sub-Millisecond Edge Performance** served from Cloudflare's 300+ worldwide data centers.
+```toml
+[vars]
+BACKEND_URL = "https://....trycloudflare.com"
+```
+
+Deploy:
+
+```powershell
+cd Quant_Trade/deployment/cloudflare
+npx wrangler deploy
+```
+
+CI deploys automatically on push to `main` if the GitHub secret
+`CLOUDFLARE_API_TOKEN` is set (otherwise the step is skipped with a warning).
+
+## 5. Vercel environment variables
+
+| Key | Value |
+| :--- | :--- |
+| `NEXT_PUBLIC_WS_URL` | `wss://quanttrade-edge-backend.quanttrade-tech.workers.dev` |
+| `NEXT_PUBLIC_API_URL` | `https://quanttrade-edge-backend.quanttrade-tech.workers.dev` |
+
+## 6. Limits
+
+- Data only flows while the backend machine and the tunnel are running.
+- For 24/7 uptime, run the same stack on a VPS and use its URL as `BACKEND_URL`.
