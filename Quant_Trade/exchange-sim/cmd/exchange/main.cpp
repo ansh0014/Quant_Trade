@@ -1,17 +1,4 @@
-// =============================================================================
-// exchange-sim / cmd / exchange / main.cpp
-//
-// Exchange simulator entry point.
-//
-// Modes
-//   --replay  <csv_file>         Replay historical orders from CSV
-//   --synth   [--duration <sec>] Run synthetic simulation (market maker +
-//                                noise trader) for <sec> seconds (default: 10)
-//
-// Build (via CMake from exchange-sim/):
-//   cmake -S . -B build && cmake --build build
-//
-// =============================================================================
+
 #include "../../replay/replay_engine.hpp"
 #include "../../replay/csv_parser.hpp"
 #include "../../replay/replay_controller.hpp"
@@ -110,7 +97,10 @@ static int run_synth(hft::SymbolId symbol_id,
     // -- WebSocket publisher -------------------------------------------------
     // Symbol map for JSON: symbol_id (uint16) -> string name
     std::unordered_map<uint16_t, std::string> sym_map;
-    sym_map[static_cast<uint16_t>(symbol_id)] = "AAPL"; // matches dev.yaml
+    sym_map[0] = "AAPL";
+    sym_map[1] = "MSFT";
+    sym_map[2] = "TSLA";
+    sym_map[3] = "NVDA";
 
     hft::WsPublisher ws_pub(ws_port);
     if (ws_port > 0) {
@@ -124,9 +114,10 @@ static int run_synth(hft::SymbolId symbol_id,
         const uint64_t now = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count());
-        if (++cnt % 1000 == 0) {
-            std::printf("[SNAP] #%llu  bid=%u/%u  ask=%u/%u  last=%u  ws_clients=%zu\n",
+        if (++cnt % 2000 == 0) {
+            std::printf("[SNAP] #%llu sym=%u  bid=%u/%u  ask=%u/%u  last=%u  ws_clients=%zu\n",
                 static_cast<unsigned long long>(cnt),
+                md.symbol_id,
                 md.best_bid_price, md.best_bid_qty,
                 md.best_ask_price, md.best_ask_qty,
                 md.last_trade_price,
@@ -147,72 +138,96 @@ static int run_synth(hft::SymbolId symbol_id,
         }
     });
 
-    // -- Market maker --------------------------------------------------------
-    hft::MarketMaker::Config mm_cfg;
-    mm_cfg.symbol_id   = symbol_id;
-    mm_cfg.client_id   = 1;
-    mm_cfg.half_spread = half_spread;
-    mm_cfg.quote_qty   = 200;
-    mm_cfg.ref_price   = 10'000;
-    mm_cfg.interval_ns = 1'000'000; // 1 ms
-    hft::MarketMaker mm(*engine, mm_cfg);
-
-    // -- Noise trader --------------------------------------------------------
-    hft::NoiseTrader::Config nt_cfg;
-    nt_cfg.symbol_id   = symbol_id;
-    nt_cfg.client_id   = 2;
-    nt_cfg.mid_price   = 10'000;
-    nt_cfg.price_sigma = 15;
-    nt_cfg.min_qty     = 1;
-    nt_cfg.max_qty     = 100;
-    nt_cfg.interval_ns = noise_interval_us * 1'000;
-    nt_cfg.seed        = 0xdeadbeefULL;
-    hft::NoiseTrader nt(nt_cfg);
-
     const uint64_t end_ns = duration_sec * 1'000'000'000ULL;
 
-    // -- Schedule market-maker refreshes -------------------------------------
-    scheduler.schedule_recurring(
-        mm_cfg.interval_ns, mm_cfg.interval_ns,
-        [&](uint64_t fire_ns) {
-            if (fire_ns > end_ns) return false;
-            hft::Order dummy;
-            mm.next_order(fire_ns, dummy);     // MM submits internally
-            snap_pub.publish(engine->get_market_data(symbol_id));
-            return true;
-        });
+    struct SymbolConfig {
+        hft::SymbolId id;
+        uint32_t price;
+        uint32_t spread;
+    };
+    std::vector<SymbolConfig> active_syms = {
+        { 0, 18500, half_spread },       // AAPL ($185.00)
+        { 1, 42000, half_spread + 1 },   // MSFT ($420.00)
+        { 2, 24000, half_spread + 2 },   // TSLA ($240.00)
+        { 3, 12500, half_spread }        // NVDA ($125.00)
+    };
 
-    // -- Schedule noise-trader orders ----------------------------------------
-    scheduler.schedule_recurring(
-        nt_cfg.interval_ns, nt_cfg.interval_ns,
-        [&](uint64_t fire_ns) {
-            if (fire_ns > end_ns) return false;
-            hft::Order order;
-            if (!nt.next_order(fire_ns, order)) return false;
+    std::vector<std::unique_ptr<hft::MarketMaker>> mms;
+    std::vector<std::unique_ptr<hft::NoiseTrader>> nts;
 
-            hft::MatchResult result;
-            engine->submit_order(order, result, fire_ns);
+    for (size_t s = 0; s < active_syms.size(); ++s) {
+        const auto& sc = active_syms[s];
 
-            if (result.matched) {
-                // Build a Trade from the taker ExecutionReport (even indices)
-                for (uint32_t i = 0; i < result.fill_count; ++i) {
-                    const auto& rpt = result.reports[i * 2];
-                    if (rpt.executed_qty == 0) continue;
-                    hft::Trade trade;
-                    trade.trade_id     = rpt.trade_id;
-                    trade.bid_order_id = order.is_buy()
-                                         ? order.order_id : rpt.order_id;
-                    trade.ask_order_id = order.is_buy()
-                                         ? rpt.order_id : order.order_id;
-                    trade.price        = rpt.executed_price;
-                    trade.quantity     = rpt.executed_qty;
-                    trade.symbol_id    = symbol_id;
-                    trade.timestamp    = fire_ns;
-                    trade_pub.publish(trade);
+        // Market Maker
+        hft::MarketMaker::Config mm_cfg;
+        mm_cfg.symbol_id   = sc.id;
+        mm_cfg.client_id   = static_cast<hft::ClientId>(10 + s);
+        mm_cfg.half_spread = sc.spread;
+        mm_cfg.quote_qty   = 200;
+        mm_cfg.ref_price   = sc.price;
+        mm_cfg.interval_ns = 1'000'000; // 1 ms
+        auto mm = std::make_unique<hft::MarketMaker>(*engine, mm_cfg);
+
+        // Noise Trader
+        hft::NoiseTrader::Config nt_cfg;
+        nt_cfg.symbol_id   = sc.id;
+        nt_cfg.client_id   = static_cast<hft::ClientId>(20 + s);
+        nt_cfg.mid_price   = sc.price;
+        nt_cfg.price_sigma = 15;
+        nt_cfg.min_qty     = 1;
+        nt_cfg.max_qty     = 100;
+        nt_cfg.interval_ns = (noise_interval_us + s * 10000) * 1'000;
+        nt_cfg.seed        = 0xdeadbeefULL + s * 0x12345ULL;
+        auto nt = std::make_unique<hft::NoiseTrader>(nt_cfg);
+
+        auto* mm_ptr = mm.get();
+        auto* nt_ptr = nt.get();
+        auto sym = sc.id;
+
+        mms.push_back(std::move(mm));
+        nts.push_back(std::move(nt));
+
+        // Schedule market-maker refreshes
+        scheduler.schedule_recurring(
+            mm_cfg.interval_ns, mm_cfg.interval_ns,
+            [&, mm_ptr, sym](uint64_t fire_ns) {
+                if (fire_ns > end_ns) return false;
+                hft::Order dummy;
+                mm_ptr->next_order(fire_ns, dummy);
+                snap_pub.publish(engine->get_market_data(sym));
+                return true;
+            });
+
+        // Schedule noise-trader orders
+        scheduler.schedule_recurring(
+            nt_cfg.interval_ns, nt_cfg.interval_ns,
+            [&, nt_ptr, sym](uint64_t fire_ns) {
+                if (fire_ns > end_ns) return false;
+                hft::Order order;
+                if (!nt_ptr->next_order(fire_ns, order)) return false;
+
+                hft::MatchResult result;
+                engine->submit_order(order, result, fire_ns);
+
+                if (result.matched) {
+                    for (uint32_t i = 0; i < result.fill_count; ++i) {
+                        const auto& taker_rpt = result.reports[i * 2];
+                        const auto& maker_rpt = result.reports[i * 2 + 1];
+                        if (taker_rpt.executed_qty == 0) continue;
+                        hft::Trade trade;
+                        trade.trade_id     = taker_rpt.trade_id;
+                        trade.bid_order_id = order.is_buy() ? order.order_id : maker_rpt.order_id;
+                        trade.ask_order_id = order.is_buy() ? maker_rpt.order_id : order.order_id;
+                        trade.price        = taker_rpt.executed_price;
+                        trade.quantity     = taker_rpt.executed_qty;
+                        trade.symbol_id    = sym;
+                        trade.timestamp    = fire_ns;
+                        trade_pub.publish(trade);
+                    }
                 }
-            }
-            return true;
-        });
+                return true;
+            });
+    }
 
     // -- Run -----------------------------------------------------------------
     const auto t0 = std::chrono::steady_clock::now();

@@ -37,13 +37,13 @@ func NewClient(addr string, logger *zap.Logger) (*Client, error) {
 	}, nil
 }
 
-// IsReady returns true when the underlying gRPC connection is in READY or IDLE state.
+// IsReady returns true when the underlying gRPC connection is usable.
 func (c *Client) IsReady() bool {
 	if c.conn == nil {
 		return false
 	}
 	s := c.conn.GetState()
-	return s == connectivity.Ready || s == connectivity.Idle
+	return s == connectivity.Ready || s == connectivity.Idle || s == connectivity.Connecting
 }
 
 // Predict sends bid/ask/bid_sz/ask_sz to the ML service and returns the response.

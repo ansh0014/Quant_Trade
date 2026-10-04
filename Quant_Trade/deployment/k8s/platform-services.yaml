@@ -1,8 +1,10 @@
 # platform-services.yaml
-# QuantTrade Core Platform Services — AWS Elastic Kubernetes Service (EKS) Configuration
+# QuantTrade Core Platform Services — Ingestion Backend, ML Predictor, & Next.js Frontend (Local Minikube)
 #
-# Configured for AWS EBS Block Storage (gp3), AWS ECR Registry,
-# and NGINX / AWS ALB Ingress Controller for SSL/TLS and WebSocket proxying.
+# Configured as internal ClusterIP services to ensure zero public exposure.
+# Access via secure port forwarding:
+#   kubectl port-forward svc/hft-frontend-svc -n hft 3000:3000
+#   kubectl port-forward svc/hft-backend-svc -n hft 8081:8081
 
 apiVersion: v1
 kind: Namespace
@@ -10,12 +12,9 @@ metadata:
   name: hft
   labels:
     app.kubernetes.io/part-of: hft-platform
-    environment: production
+    environment: local
 
 ---
-# ──────────────────────────────────────────────────────────────────────────────
-# AWS EBS Persistent Volume Claim (gp3 storage class)
-# ──────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -25,16 +24,12 @@ metadata:
     app.kubernetes.io/part-of: hft-platform
 spec:
   accessModes:
-    - ReadWriteOnce
-  storageClassName: gp3 # AWS EBS General Purpose SSD
+    - ReadWriteOnce # Compatible with Minikube default storage class
   resources:
     requests:
-      storage: 20Gi
+      storage: 10Gi
 
 ---
-# ──────────────────────────────────────────────────────────────────────────────
-# Backend ConfigMap
-# ──────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -48,6 +43,7 @@ data:
       grpc_port: 9090
       ws_port: 8081
     exchange:
+      # Connects directly to the headless service of the exchange simulator
       ws_url: "ws://hft-exchange-sim-svc.hft.svc.cluster.local:8080/ws/market-data"
       reconnect_delay_s: 1.0
       max_reconnect_delay_s: 10.0
@@ -92,8 +88,8 @@ spec:
     spec:
       containers:
         - name: ml-predictor
-          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/quanttrade/ml-predictor:latest
-          imagePullPolicy: IfNotPresent
+          image: quant_trade/ml-predictor:latest
+          imagePullPolicy: Never
           ports:
             - name: grpc-ml
               containerPort: 50051
@@ -106,7 +102,7 @@ spec:
             - name: ML_WORKERS
               value: "4"
             - name: ML_RELOAD_INTERVAL
-              value: "10"
+              value: "10" # Fast reload monitoring for newly trained models
           volumeMounts:
             - name: shared-storage
               mountPath: /data
@@ -138,7 +134,7 @@ metadata:
     app.kubernetes.io/component: inference-engine
     app.kubernetes.io/part-of: hft-platform
 spec:
-  type: ClusterIP
+  type: ClusterIP # Kept internal
   selector:
     app: ml-predictor
   ports:
@@ -172,8 +168,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/quanttrade/hft-backend:latest
-          imagePullPolicy: IfNotPresent
+          image: quant_trade/hft-backend:latest
+          imagePullPolicy: Never
           ports:
             - name: ws-server
               containerPort: 8081
@@ -217,7 +213,7 @@ metadata:
     app.kubernetes.io/component: market-data-routing
     app.kubernetes.io/part-of: hft-platform
 spec:
-  type: ClusterIP
+  type: ClusterIP # Kept internal
   selector:
     app: backend
   ports:
@@ -232,35 +228,69 @@ spec:
 
 ---
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. NGINX INGRESS CONTROLLER FOR AWS EKS
+# 3. NEXT.JS FRONTEND
 # ──────────────────────────────────────────────────────────────────────────────
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: hft-backend-ingress
+  name: hft-frontend-deploy
   namespace: hft
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/websocket-services: "hft-backend-svc"
-    nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  labels:
+    app.kubernetes.io/name: dashboard-frontend
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: hft-platform
 spec:
-  ingressClassName: nginx
-  rules:
-    - host: api.quanttrade.yourdomain.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: hft-backend-svc
-                port:
-                  number: 8081
-  tls:
-    - hosts:
-        - api.quanttrade.yourdomain.com
-      secretName: quanttrade-backend-tls
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: quant_trade/hft-frontend:latest
+          imagePullPolicy: Never
+          ports:
+            - name: http-ui
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-frontend-svc
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: dashboard-frontend
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: hft-platform
+spec:
+  type: ClusterIP # Kept internal
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000

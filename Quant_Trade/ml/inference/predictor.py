@@ -49,7 +49,10 @@ class Predictor:
         self.feature_names  = FEATURE_NAMES
         self._meta: dict   = {}
 
-        self._load_from_disk()
+        try:
+            self._load_from_disk()
+        except FileNotFoundError as exc:
+            logger.warning("Initial model loading skipped: %s. Serving fallback predictions until model is available.", exc)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -63,8 +66,7 @@ class Predictor:
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"model.pkl not found at {model_path}. "
-                "Run ml/training/train.py or ml/training/retrain.py first."
+                f"model.pkl not found at {model_path}."
             )
 
         logger.info("loading model from %s", model_path)
@@ -137,10 +139,21 @@ class Predictor:
         direction — 1 (up) if buy_prob > 0.5, else 0 (down / flat)
         """
         with self._lock:
+            if self.streaming_pipe is None:
+                self.streaming_pipe = StreamingFeaturePipeline()
             feature_vec = self.streaming_pipe.transform_single(
                 bid, ask, bid_sz, ask_sz
             )
             model = self.model
+
+        if model is None:
+            tot = bid_sz + ask_sz
+            obi = (bid_sz - ask_sz) / tot if tot > 0 else 0.0
+            ret_drift = feature_vec[15] if len(feature_vec) > 15 and not np.isnan(feature_vec[15]) else 0.0
+            prob = 0.5 + (obi * 0.35) + (ret_drift * 8.0)
+            prob = max(0.08, min(0.92, prob))
+            direction = 1 if prob > 0.5 else 0
+            return float(prob), direction
 
         # Replace NaN with 0.0 for early ticks where history is insufficient.
         feature_vec = [0.0 if (v != v) else v for v in feature_vec]

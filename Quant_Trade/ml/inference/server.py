@@ -137,12 +137,15 @@ class PredictionService(prediction_pb2_grpc.PredictionServiceServicer):
 
         elif n >= _N_FEATURES:
             # C++ sent the full feature vector — use it directly (advanced mode).
-            import pandas as pd
-            from ml.feature_engineering.features import FEATURE_NAMES
-            feats = [float(f) for f in request.features[:_N_FEATURES]]
-            X = pd.DataFrame([feats], columns=FEATURE_NAMES)
-            buy_prob  = float(self.predictor.model.predict_proba(X)[0][1])
-            direction = 1 if buy_prob > 0.5 else 0
+            if self.predictor.model is None:
+                buy_prob, direction = 0.5, 0
+            else:
+                import pandas as pd
+                from ml.feature_engineering.features import FEATURE_NAMES
+                feats = [float(f) for f in request.features[:_N_FEATURES]]
+                X = pd.DataFrame([feats], columns=FEATURE_NAMES)
+                buy_prob  = float(self.predictor.model.predict_proba(X)[0][1])
+                direction = 1 if buy_prob > 0.5 else 0
 
         else:
             context.abort(

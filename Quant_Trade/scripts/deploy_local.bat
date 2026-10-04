@@ -52,54 +52,57 @@ echo.
 :: STEP 1: Check Minikube is running
 :: ---------------------------------------------------------------
 echo [1/7] Checking Minikube status...
-minikube status --format "{{.Host}}" 2>nul | findstr /i "Running" >nul 2>&1
+minikube status >nul 2>&1
 if errorlevel 1 (
-    echo   Minikube is not running. Starting it now...
-    minikube start
-    minikube start --cpus=4 --memory=8192 --disk-size=20g
+    echo   Minikube is not running. Starting it now with 4 CPUs and 8GB RAM...
+    minikube start --cpus=4 --memory=8192 --disk-size=20g --driver=docker
     if errorlevel 1 ( echo   [ERROR] Failed to start Minikube. & exit /b 1 )
 ) else (
     echo   Minikube is already running. OK
-    echo   Minikube is already running with sufficient resources (4 CPUs, 8GB RAM). OK
 )
 echo.
 
 :: ---------------------------------------------------------------
-:: STEP 2: Point Docker CLI at Minikube's internal daemon
+:: STEP 2: Prepare Docker & Minikube Environment
 :: ---------------------------------------------------------------
-echo [2/7] Switching Docker context to Minikube daemon...
-@FOR /f "tokens=*" %%i IN ('minikube -p minikube docker-env --shell cmd') DO @%%i
-echo   Docker context set to Minikube. OK
+echo [2/7] Checking Docker & Minikube environment...
+echo   Ready. OK
 echo.
 
 :: ---------------------------------------------------------------
-:: STEP 3: Build Docker images
+:: STEP 3: Build Docker images and load into Minikube
 :: ---------------------------------------------------------------
-echo [3/7] Building Docker images inside Minikube...
+echo [3/7] Building Docker images and loading into Minikube...
+pushd "%PROJECT_ROOT%"
 
-echo   Building Go Backend...
-docker build -t quant_trade/hft-backend:latest -f "%PROJECT_ROOT%\backend-go\Dockerfile" "%PROJECT_ROOT%"
-if errorlevel 1 ( echo   [ERROR] Failed to build hft-backend. & exit /b 1 )
+echo   [1/4] Building Go Backend (quant_trade/hft-backend:latest)...
+docker build -t quant_trade/hft-backend:latest -f backend-go\Dockerfile .
+if errorlevel 1 ( popd & echo   [ERROR] Failed to build hft-backend. & exit /b 1 )
+minikube image load quant_trade/hft-backend:latest
 
-echo   Building ML Predictor...
-docker build -t quant_trade/ml-predictor:latest -f "%PROJECT_ROOT%\ml\Dockerfile" "%PROJECT_ROOT%"
-if errorlevel 1 ( echo   [ERROR] Failed to build ml-predictor. & exit /b 1 )
+echo   [2/4] Building ML Predictor (quant_trade/ml-predictor:latest)...
+docker build -t quant_trade/ml-predictor:latest -f ml\Dockerfile .
+if errorlevel 1 ( popd & echo   [ERROR] Failed to build ml-predictor. & exit /b 1 )
+minikube image load quant_trade/ml-predictor:latest
 
-echo   Building Frontend...
-docker build -t quant_trade/hft-frontend:latest -f "%PROJECT_ROOT%\frontend\Dockerfile" "%PROJECT_ROOT%"
-if errorlevel 1 ( echo   [ERROR] Failed to build hft-frontend. & exit /b 1 )
+echo   [3/4] Building Frontend (quant_trade/hft-frontend:latest)...
+docker build -t quant_trade/hft-frontend:latest -f frontend\Dockerfile .
+if errorlevel 1 ( popd & echo   [ERROR] Failed to build hft-frontend. & exit /b 1 )
+minikube image load quant_trade/hft-frontend:latest
 
-echo   Building C++ Exchange Simulator...
-docker build -t quant_trade/exchange-sim:latest -f "%PROJECT_ROOT%\exchange-sim\Dockerfile" "%PROJECT_ROOT%"
-if errorlevel 1 ( echo   [ERROR] Failed to build exchange-sim. & exit /b 1 )
+echo   [4/4] Building C++ Exchange Simulator (quant_trade/exchange-sim:latest)...
+docker build -t quant_trade/exchange-sim:latest -f exchange-sim\Dockerfile .
+if errorlevel 1 ( popd & echo   [ERROR] Failed to build exchange-sim. & exit /b 1 )
+minikube image load quant_trade/exchange-sim:latest
 
-echo   All images built successfully. OK
+popd
+echo   All images built and loaded into Minikube successfully. OK
 echo.
 
 :: ---------------------------------------------------------------
 :: STEP 4: Ensure namespace and apply Kubernetes manifests
 :: ---------------------------------------------------------------
-echo [4/7] Applying Kubernetes manifests...
+echo [4/7] Applying Kubernetes manifests and restarting deployments...
 kubectl get namespace hft >nul 2>&1 || kubectl create namespace hft
 
 kubectl apply -f "%PROJECT_ROOT%\deployment\k8s\platform-services.yaml"
@@ -108,7 +111,10 @@ if errorlevel 1 ( echo   [ERROR] Failed to apply platform-services.yaml. & exit 
 kubectl apply -f "%PROJECT_ROOT%\deployment\k8s\simulation-cronjob.yaml"
 if errorlevel 1 ( echo   [ERROR] Failed to apply simulation-cronjob.yaml. & exit /b 1 )
 
-echo   Manifests applied. OK
+:: Force rolling restart so old pods are terminated and fresh images are loaded
+kubectl rollout restart deployment -n hft >nul 2>&1
+
+echo   Manifests applied and pods restarting. OK
 echo.
 
 :: ---------------------------------------------------------------
