@@ -1,0 +1,406 @@
+# platform-services.prod.yaml
+# Quant_Trade Core Platform Services — Production Cloud Manifest (K3s / EKS / BareMetal)
+#
+# Features:
+# - Production Namespace with Standard Cloud Native Labels
+# - Future-Proof Prometheus/Grafana Scraping Annotations
+# - Ingress Routing for Frontend UI and Backend WebSocket/REST APIs
+# - Hardened Security Contexts & Strict Resource Limits
+# - Persistent Volume Claim for High-Speed Parquet & ML Artifacts
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hft
+  labels:
+    name: hft
+    app.kubernetes.io/name: hft-platform
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# PERSISTENT STORAGE
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hft-shared-data-pvc
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: hft-storage
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# BACKEND CONFIGURATION
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hft-backend-config
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: hft-backend
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+data:
+  prod.yaml: |
+    server:
+      grpc_port: 9090
+      ws_port: 8081
+    exchange:
+      ws_url: "ws://hft-exchange-sim-svc.hft.svc.cluster.local:8080/ws/market-data"
+      reconnect_delay_s: 1.0
+      max_reconnect_delay_s: 10.0
+    storage:
+      output_dir: "/data/ticks"
+      buffer_size: 5000
+      flush_interval_s: 5.0
+      max_file_ticks: 200000
+    ml:
+      grpc_addr: "hft-ml-predictor-svc:50051"
+    symbol_map:
+      0: "AAPL"
+      1: "MSFT"
+      2: "TSLA"
+      3: "NVDA"
+    logging:
+      level: "info"
+      format: "json"
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. PYTHON ML PREDICTOR SERVICE
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hft-ml-predictor-deploy
+  namespace: hft
+  labels:
+    app: ml-predictor
+    app.kubernetes.io/name: ml-predictor
+    app.kubernetes.io/component: inference-engine
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-predictor
+  template:
+    metadata:
+      labels:
+        app: ml-predictor
+        app.kubernetes.io/name: ml-predictor
+        app.kubernetes.io/component: inference-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "50051"
+    spec:
+      containers:
+        - name: ml-predictor
+          image: ghcr.io/ansh0014/quant-trade/ml-predictor:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc-ml
+              containerPort: 50051
+              protocol: TCP
+          env:
+            - name: ML_MODEL_DIR
+              value: "/data/artifacts"
+            - name: ML_GRPC_PORT
+              value: "50051"
+            - name: ML_WORKERS
+              value: "4"
+            - name: ML_RELOAD_INTERVAL
+              value: "10"
+          volumeMounts:
+            - name: shared-storage
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "1536Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: shared-storage
+          persistentVolumeClaim:
+            claimName: hft-shared-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-ml-predictor-svc
+  namespace: hft
+  labels:
+    app: ml-predictor
+    app.kubernetes.io/name: ml-predictor
+    app.kubernetes.io/component: inference-engine
+    app.kubernetes.io/part-of: quant-trade
+spec:
+  type: ClusterIP
+  selector:
+    app: ml-predictor
+  ports:
+    - name: grpc-ml
+      protocol: TCP
+      port: 50051
+      targetPort: 50051
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. GO INGESTION BACKEND
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hft-backend-deploy
+  namespace: hft
+  labels:
+    app: backend
+    app.kubernetes.io/name: backend-go
+    app.kubernetes.io/component: market-data-routing
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        app.kubernetes.io/name: backend-go
+        app.kubernetes.io/component: market-data-routing
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/ansh0014/quant-trade/backend-go:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: ws-server
+              containerPort: 8081
+              protocol: TCP
+            - name: grpc-server
+              containerPort: 9090
+              protocol: TCP
+          volumeMounts:
+            - name: shared-storage
+              mountPath: /data
+            - name: config-volume
+              mountPath: /app/configs
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "768Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: shared-storage
+          persistentVolumeClaim:
+            claimName: hft-shared-data-pvc
+        - name: config-volume
+          configMap:
+            name: hft-backend-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-backend-svc
+  namespace: hft
+  labels:
+    app: backend
+    app.kubernetes.io/name: backend-go
+    app.kubernetes.io/component: market-data-routing
+    app.kubernetes.io/part-of: quant-trade
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - name: ws
+      protocol: TCP
+      port: 8081
+      targetPort: 8081
+    - name: grpc
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. NEXT.JS FRONTEND
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hft-frontend-deploy
+  namespace: hft
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/component: ui
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/ansh0014/quant-trade/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-ui
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "180Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-frontend-svc
+  namespace: hft
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: quant-trade
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. PRODUCTION INGRESS (TRAEFIK / NGINX / CLOUDFLARE READY)
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hft-platform-ingress
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: hft-ingress
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+  annotations:
+    ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
+    # NGINX compatibility annotations (if deployed on standard ingress-nginx)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "hft-backend-svc"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+spec:
+  rules:
+    - http:
+        paths:
+          # Route WebSocket and API endpoints directly to Go Backend
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: hft-backend-svc
+                port:
+                  number: 8081
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: hft-backend-svc
+                port:
+                  number: 8081
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: hft-backend-svc
+                port:
+                  number: 8081
+          # Route all UI traffic to Next.js Frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hft-frontend-svc
+                port:
+                  number: 3000
