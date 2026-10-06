@@ -52,6 +52,9 @@ public:
         schedule(first_ns, std::move(fire));
     }
 
+#include <thread>
+#include <chrono>
+
     // Process all events with fire_ns <= clock.now()
     void tick(SimulationClock& clock) {
         while (!queue_.empty() && queue_.top().fire_ns <= clock.now()) {
@@ -62,10 +65,23 @@ public:
         }
     }
 
-    // Run until no more events remain, advancing the clock to each event
-    void run_all(SimulationClock& clock) {
+    // Run with real-time wall-clock pacing so live WebSocket subscribers receive continuous real-time trades
+    void run_all(SimulationClock& clock, double speed = 1.0) {
+        if (queue_.empty()) return;
+        const auto wall_start = std::chrono::steady_clock::now();
+        const uint64_t sim_start = queue_.top().fire_ns;
+
         while (!queue_.empty()) {
-            clock.set(queue_.top().fire_ns);
+            uint64_t next_sim_ns = queue_.top().fire_ns;
+            uint64_t sim_elapsed_ns = (next_sim_ns >= sim_start) ? (next_sim_ns - sim_start) : 0;
+            
+            auto target_wall = wall_start + std::chrono::nanoseconds(static_cast<int64_t>(sim_elapsed_ns / speed));
+            auto now_wall = std::chrono::steady_clock::now();
+            if (target_wall > now_wall) {
+                std::this_thread::sleep_until(target_wall);
+            }
+
+            clock.set(next_sim_ns);
             tick(clock);
         }
     }
