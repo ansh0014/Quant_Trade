@@ -1,7 +1,6 @@
 /**
  * QuantTrade Platform — Network & API Configuration
- * Supports dynamic resolution for local development, remote laptops,
- * and Cloud Kubernetes (DigitalOcean / AWS / GCP) deployments.
+ * Production-hardened environment variable & origin resolution
  */
 
 export interface AppConfig {
@@ -12,11 +11,16 @@ export interface AppConfig {
 }
 
 export function getBackendHost(): string {
-  if (typeof window === 'undefined') {
-    return process.env.NEXT_PUBLIC_BACKEND_HOST || 'localhost:8081'
+  // 1. Environment variable (Recommended for Production & Vercel)
+  if (process.env.NEXT_PUBLIC_BACKEND_HOST) {
+    return process.env.NEXT_PUBLIC_BACKEND_HOST
   }
 
-  // 1. Check URL query override (e.g. ?backend=165.227.12.34:8081 or ?backend=api.quanttrade.io)
+  if (typeof window === 'undefined') {
+    return 'localhost:8081'
+  }
+
+  // 2. Query parameter override (for debugging/development only)
   const params = new URLSearchParams(window.location.search)
   const queryBackend = params.get('backend')
   if (queryBackend) {
@@ -26,26 +30,16 @@ export function getBackendHost(): string {
     return queryBackend
   }
 
-  // 2. Check localStorage saved override
+  // 3. Stored override from previous session
   try {
     const saved = localStorage.getItem('quant_trade_backend_host')
     if (saved) return saved
   } catch {}
 
-  // 3. Environment variable override
-  if (process.env.NEXT_PUBLIC_BACKEND_HOST) {
-    return process.env.NEXT_PUBLIC_BACKEND_HOST
-  }
-
-  // 4. Auto-detect if opened in cloud / ingress / tunnel / remote
+  // 4. Same-origin fallback (Uses current host & port)
   const hostname = window.location.hostname
-  const isHttps = window.location.protocol === 'https:'
   if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-    // If accessed over HTTPS or via Cloudflare / Ingress, use standard port (same origin)
-    if (isHttps || hostname.includes('cloudflare') || hostname.includes('vercel.app')) {
-      return hostname
-    }
-    return `${hostname}`
+    return window.location.host
   }
 
   return 'localhost:8081'
@@ -57,7 +51,7 @@ export function getAppConfig(): AppConfig {
   const httpProto = isSecure ? 'https' : 'http'
   const wsProto = isSecure ? 'wss' : 'ws'
 
-  // If host already contains protocol, strip it
+  // Clean host to avoid duplicate protocols
   const cleanHost = host.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '')
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || `${httpProto}://${cleanHost}`
