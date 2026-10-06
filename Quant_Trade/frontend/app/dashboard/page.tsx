@@ -470,36 +470,31 @@ function TradeLogPanel({ trades }: { trades: TradeEntry[] }) {
           </div>
 
           <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
-            <AnimatePresence initial={false}>
-              {trades.slice(0, 30).map((t) => (
-                <motion.div
-                  key={t.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.12 }}
-                  className="grid grid-cols-[70px_50px_60px_1fr_60px_50px] gap-2 items-center text-[10px] font-mono py-1 px-1.5 rounded bg-zinc-900/30 border border-zinc-800/40 hover:border-zinc-700/60 transition-colors"
-                >
-                  <span className="text-zinc-400">{t.time}</span>
-                  <span className="text-zinc-300">{t.symbol || 'AAPL'}</span>
-                  <div>
-                    <span
-                      className={`inline-flex items-center px-1.5 py-0.2 text-[9px] font-semibold rounded ${
-                        t.side === 'BUY'
-                          ? 'text-emerald-400 bg-emerald-500/10'
-                          : 'text-rose-400 bg-rose-500/10'
-                      }`}
-                    >
-                      {t.side}
-                    </span>
-                  </div>
-                  <span className="text-right font-medium text-zinc-200">
-                    {fmt(t.price)}
+            {trades.slice(0, 30).map((t) => (
+              <div
+                key={t.id}
+                className="grid grid-cols-[70px_50px_60px_1fr_60px_50px] gap-2 items-center text-[10px] font-mono py-1 px-1.5 rounded bg-zinc-900/30 border border-zinc-800/40 hover:border-zinc-700/60 transition-colors"
+              >
+                <span className="text-zinc-400">{t.time}</span>
+                <span className="text-zinc-300">{t.symbol || 'AAPL'}</span>
+                <div>
+                  <span
+                    className={`inline-flex items-center px-1.5 py-0.2 text-[9px] font-semibold rounded ${
+                      t.side === 'BUY'
+                        ? 'text-emerald-400 bg-emerald-500/10'
+                        : 'text-rose-400 bg-rose-500/10'
+                    }`}
+                  >
+                    {t.side}
                   </span>
-                  <span className="text-right text-zinc-400">×{t.size}</span>
-                  <span className="text-right text-zinc-600 text-[9px]">#{t.seq}</span>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                </div>
+                <span className="text-right font-medium text-zinc-200">
+                  {fmt(t.price)}
+                </span>
+                <span className="text-right text-zinc-400">×{t.size}</span>
+                <span className="text-right text-zinc-600 text-[9px]">#{t.seq}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -668,6 +663,12 @@ export default function DashboardPage() {
   const tickBucket = useRef(0)
   const tradeIdRef = useRef(0)
 
+  // High-performance batching buffers to eliminate UI stutter & frame drops
+  const pendingTicksRef = useRef<Record<string, Tick>>({})
+  const pendingHistoriesRef = useRef<Record<string, PricePoint[]>>({})
+  const pendingTradesRef = useRef<TradeEntry[]>([])
+  const totalTickCountRef = useRef(0)
+
   useEffect(() => {
     if (connected) {
       setShowOffline(false)
@@ -683,6 +684,41 @@ export default function DashboardPage() {
       tickBucket.current = 0
     }, 1000)
     return () => clearInterval(iv)
+  }, [])
+
+  // Smooth 25Hz UI flush loop (every 40ms) — batches hundreds of incoming HFT ticks into 1 smooth React render
+  useEffect(() => {
+    const flushInterval = setInterval(() => {
+      // 1. Flush Ticks & Histories
+      if (Object.keys(pendingTicksRef.current).length > 0) {
+        const latestTicks = { ...pendingTicksRef.current }
+        pendingTicksRef.current = {}
+        setSymbolTicks((prev) => ({ ...prev, ...latestTicks }))
+        setTickCount(totalTickCountRef.current)
+      }
+
+      if (Object.keys(pendingHistoriesRef.current).length > 0) {
+        const latestHistories = { ...pendingHistoriesRef.current }
+        pendingHistoriesRef.current = {}
+        setSymbolHistories((prev) => {
+          const next = { ...prev }
+          for (const sym in latestHistories) {
+            const cur = next[sym] || []
+            next[sym] = [...cur, ...latestHistories[sym]].slice(-60)
+          }
+          return next
+        })
+      }
+
+      // 2. Flush Trades
+      if (pendingTradesRef.current.length > 0) {
+        const newTrades = [...pendingTradesRef.current]
+        pendingTradesRef.current = []
+        setTrades((prev) => [...newTrades, ...prev].slice(0, 80))
+      }
+    }, 40) // 25 FPS buttery smooth batching
+
+    return () => clearInterval(flushInterval)
   }, [])
 
   const connectMarket = useCallback(() => {
@@ -705,23 +741,19 @@ export default function DashboardPage() {
           const tick: Tick = JSON.parse(evt.data)
           const sym = tick.symbol || 'AAPL'
           tickBucket.current++
-          setTickCount((n) => n + 1)
+          totalTickCountRef.current++
 
-          setSymbolTicks((prev) => ({ ...prev, [sym]: tick }))
-
-          setSeqGapWarning(Boolean(tick.seq_gap))
+          // Queue in buffer instead of hammering React state directly
+          pendingTicksRef.current[sym] = tick
 
           const mid = (tick.bid + tick.ask) / 2
           const micro = calcMicroprice(tick.bid, tick.ask, tick.bid_sz, tick.ask_sz)
           const time = nsToTime(tick.timestamp_ns)
 
-          setSymbolHistories((prev) => {
-            const cur = prev[sym] || []
-            return {
-              ...prev,
-              [sym]: [...cur, { time, mid, micro, last: tick.last_price }].slice(-60),
-            }
-          })
+          if (!pendingHistoriesRef.current[sym]) {
+            pendingHistoriesRef.current[sym] = []
+          }
+          pendingHistoriesRef.current[sym].push({ time, mid, micro, last: tick.last_price })
         } catch { /* parse skip */ }
       }
     } catch { /* connection failed */ }
@@ -751,7 +783,8 @@ export default function DashboardPage() {
             seq: raw.sequence ?? raw.trade_id ?? 0,
             gap: false,
           }
-          setTrades((prev) => [entry, ...prev].slice(0, 80))
+          // Queue into trade buffer
+          pendingTradesRef.current.unshift(entry)
         } catch { /* parse skip */ }
       }
     } catch { /* connection failed */ }
