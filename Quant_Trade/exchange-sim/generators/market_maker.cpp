@@ -45,6 +45,10 @@ public:
         // Cancel previous resting quotes
         cancel_resting(now_ns);
 
+        // Add subtle Brownian motion random walk to simulate authentic price action
+        int32_t step = (rng_() % 3 == 0) ? ((rng_() % 2 == 0) ? 1 : -1) : 0;
+        cfg_.ref_price = static_cast<Price>(std::max<int32_t>(100, static_cast<int32_t>(cfg_.ref_price) + step));
+
         // Determine mid price from book; fall back to ref_price if empty
         MarketData md = engine_.get_market_data(cfg_.symbol_id);
         Price mid     = compute_mid(md);
@@ -106,6 +110,7 @@ private:
 
     MatchingEngine& engine_;
     Config          cfg_;
+    std::mt19937_64 rng_{42};
     uint64_t        next_oid_;
     OrderId         pending_bid_oid_;
     OrderId         pending_ask_oid_;

@@ -47,19 +47,21 @@ public:
             return false;
 
         int32_t offset = static_cast<int32_t>(price_dist_(rng_));
-        Price   p      = static_cast<Price>(
-                            static_cast<int32_t>(cfg_.mid_price) + offset);
-        if (p == 0) p = 1; // clamp
+        OrderSide side = (side_dist_(rng_) == 0) ? OrderSide::BUY : OrderSide::SELL;
 
-        OrderSide side = side_dist_(rng_) == 0
-                         ? OrderSide::BUY
-                         : OrderSide::SELL;
+        // 60% aggressive crossing orders (executes against the resting order book)
+        bool is_aggressive = (rng_() % 10 < 6);
+        OrderType type = is_aggressive ? OrderType::MARKET : OrderType::LIMIT;
+
+        Price p = static_cast<Price>(
+            static_cast<int32_t>(cfg_.mid_price) + (is_aggressive ? (side == OrderSide::BUY ? 10 : -10) : offset));
+        if (p == 0) p = 1; // clamp
 
         out = Order(order_id_++,
                     p,
                     qty_dist_(rng_),
                     side,
-                    OrderType::LIMIT,
+                    type,
                     cfg_.symbol_id,
                     cfg_.client_id,
                     now_ns);
