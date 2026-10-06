@@ -38,10 +38,12 @@ export function getBackendHost(): string {
   }
 
   // 4. Auto-detect if opened on remote laptop pointing to cloud/server
-  const hostname = window.location.hostname
-  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-    // If the frontend is deployed in Kubernetes with backend exposed on port 8081 or same host
-    return `${hostname}:8081`
+  if (typeof window !== 'undefined') {
+    const host = window.location.host
+    if (host && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+      // Use standard host (with port if specified in browser address bar)
+      return host
+    }
   }
 
   return 'localhost:8081'
