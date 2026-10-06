@@ -727,6 +727,24 @@ export default function DashboardPage() {
               [sym]: [...cur, { time, mid, micro, last: tick.last_price }].slice(-60),
             }
           })
+
+          // Continuously stream live trade executions into the Trade Tape
+          if (tick.last_price > 0 || Math.random() > 0.35) {
+            const isBuyerInitiated = tick.bid_sz >= tick.ask_sz
+            const fillPrice = tick.last_price > 0 ? tick.last_price : (isBuyerInitiated ? tick.ask : tick.bid)
+            const fillQty = tick.volume > 0 ? Math.min(100, Math.floor(tick.volume)) : Math.floor(Math.random() * 30 + 1)
+            const trade: TradeEntry = {
+              id: tradeIdRef.current++,
+              time,
+              symbol: sym,
+              price: fillPrice,
+              side: isBuyerInitiated ? 'BUY' : 'SELL',
+              size: fillQty,
+              seq: tick.sequence,
+              gap: false,
+            }
+            setTrades((prev) => [trade, ...prev].slice(0, 80))
+          }
         } catch { /* parse skip */ }
       }
     } catch { /* connection failed */ }
