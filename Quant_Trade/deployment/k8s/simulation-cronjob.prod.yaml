@@ -1,0 +1,151 @@
+# simulation-cronjob.prod.yaml
+# C++ exchange simulator CronJob — fires daily for Market Hours (or continuous simulation)
+# Quant_Trade Production Environment
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hft
+  labels:
+    app.kubernetes.io/name: hft-platform
+    app.kubernetes.io/part-of: quant-trade
+    environment: production
+
+---
+# Tunable parameters — edit this ConfigMap and apply, no image rebuild needed
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hft-sim-config
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: exchange-sim
+    app.kubernetes.io/component: market-data-feed
+    app.kubernetes.io/part-of: quant-trade
+data:
+  SIM_MODE: "synth"                            # synth (market maker + noise trader) or replay (CSV)
+  SIM_DURATION: "82800"                        # 23 hours in seconds (covers trading day)
+  SIM_SYMBOL: "0"                              # symbol ID 0 = AAPL (matches configs/prod.yaml)
+  SIM_SPREAD: "5"                              # market maker half-spread in price ticks
+  SIM_NOISE_US: "10000"                        # noise trader order interval in microseconds (10ms)
+  SIM_WS_PORT: "8080"                          # WebSocket publisher port
+  SIM_REPLAY_CSV: "/data/exchange_replay.csv"  # CSV file path for replay mode
+  SIM_SPEED: "1.0"                             # replay speed multiplier (1.0 = real-time)
+
+---
+# Headless Service for DNS-based pod discovery: ws://hft-exchange-sim-svc.hft.svc.cluster.local:8080
+apiVersion: v1
+kind: Service
+metadata:
+  name: hft-exchange-sim-svc
+  namespace: hft
+  labels:
+    app: exchange-sim
+    app.kubernetes.io/name: exchange-sim
+    app.kubernetes.io/component: market-data-feed
+    app.kubernetes.io/part-of: quant-trade
+spec:
+  clusterIP: None  # headless: DNS resolves directly to pod IP
+  selector:
+    app: exchange-sim
+  ports:
+    - name: ws-binary
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hft-exchange-sim
+  namespace: hft
+  labels:
+    app: exchange-sim
+    app.kubernetes.io/name: exchange-sim
+    app.kubernetes.io/component: market-data-feed
+    app.kubernetes.io/part-of: quant-trade
+  annotations:
+    description: "C++ exchange simulator, runs continuously / scheduled"
+spec:
+  suspend: false
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+
+  jobTemplate:
+    metadata:
+      labels:
+        app: exchange-sim-cron
+        app.kubernetes.io/component: market-data-feed
+    spec:
+      ttlSecondsAfterFinished: 10
+      activeDeadlineSeconds: 84900
+      backoffLimit: 2
+
+      template:
+        metadata:
+          labels:
+            app: exchange-sim
+          annotations:
+            prometheus.io/scrape: "false"
+        spec:
+          restartPolicy: OnFailure
+
+          containers:
+            - name: exchange-sim
+              image: ghcr.io/ansh0014/quant-trade/exchange-sim:latest
+              imagePullPolicy: IfNotPresent
+
+              ports:
+                - name: ws-binary
+                  containerPort: 8080
+                  protocol: TCP
+
+              envFrom:
+                - configMapRef:
+                    name: hft-sim-config
+
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  exec /app/exchange-sim/build/exchange_sim \
+                    --${SIM_MODE} \
+                    --duration          ${SIM_DURATION} \
+                    --symbol            ${SIM_SYMBOL} \
+                    --spread            ${SIM_SPREAD} \
+                    --noise-interval-us ${SIM_NOISE_US} \
+                    --ws-port           ${SIM_WS_PORT}
+
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+
+              livenessProbe:
+                tcpSocket:
+                  port: 8080
+                initialDelaySeconds: 15
+                periodSeconds: 30
+                failureThreshold: 3
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 1000
+                capabilities:
+                  drop:
+                    - ALL
+                  add:
+                    - NET_BIND_SERVICE
+
+          volumes:
+            - name: tmp
+              emptyDir: {}
