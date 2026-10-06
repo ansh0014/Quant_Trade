@@ -37,13 +37,15 @@ export function getBackendHost(): string {
     return process.env.NEXT_PUBLIC_BACKEND_HOST
   }
 
-  // 4. Auto-detect if opened on remote laptop pointing to cloud/server
-  if (typeof window !== 'undefined') {
-    const host = window.location.host
-    if (host && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
-      // Use standard host (with port if specified in browser address bar)
-      return host
+  // 4. Auto-detect if opened in cloud / ingress / tunnel / remote
+  const hostname = window.location.hostname
+  const isHttps = window.location.protocol === 'https:'
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    // If accessed over HTTPS or via Cloudflare / Ingress, use standard port (same origin)
+    if (isHttps || hostname.includes('cloudflare') || hostname.includes('vercel.app')) {
+      return hostname
     }
+    return `${hostname}`
   }
 
   return 'localhost:8081'
