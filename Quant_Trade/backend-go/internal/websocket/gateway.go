@@ -33,15 +33,15 @@ type subscribeMsg struct {
 	Symbols []string `json:"symbols"`
 }
 
-// readSubscribeFilter checks quickly for {"action":"subscribe","symbols":["AAPL"]}.
-// Returns nil if no subscription message arrives → streams all symbols without delay.
+// readSubscribeFilter waits up to 5s for {"action":"subscribe","symbols":["AAPL"]}.
+// Returns nil if no valid subscription message arrives → stream all symbols.
 func (g *Gateway) readSubscribeFilter(conn *websocket.Conn) map[string]struct{} {
-	defer conn.SetReadDeadline(time.Time{})
-	conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
 		return nil
 	}
+	conn.SetReadDeadline(time.Time{})
 
 	var msg subscribeMsg
 	if err := json.Unmarshal(raw, &msg); err != nil || msg.Action != "subscribe" {

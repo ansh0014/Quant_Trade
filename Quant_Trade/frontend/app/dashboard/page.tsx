@@ -692,12 +692,7 @@ export default function DashboardPage() {
       const ws = new WebSocket(endpoints.market)
       wsRef.current = ws
 
-      ws.onopen = () => {
-        setConnected(true)
-        try {
-          ws.send(JSON.stringify({ action: 'subscribe', symbols: ['AAPL', 'MSFT', 'TSLA', 'NVDA'] }))
-        } catch {}
-      }
+      ws.onopen = () => setConnected(true)
       ws.onclose = () => {
         setConnected(false)
         setTimeout(connectMarket, 3000)
@@ -739,11 +734,6 @@ export default function DashboardPage() {
       const ws = new WebSocket(endpoints.trades)
       wsTradesRef.current = ws
 
-      ws.onopen = () => {
-        try {
-          ws.send(JSON.stringify({ action: 'subscribe', symbols: ['AAPL', 'MSFT', 'TSLA', 'NVDA'] }))
-        } catch {}
-      }
       ws.onclose = () => setTimeout(connectTrades, 3000)
       ws.onerror = () => ws.close()
 
