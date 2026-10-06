@@ -138,7 +138,7 @@ static int run_synth(hft::SymbolId symbol_id,
         }
     });
 
-    const uint64_t end_ns = duration_sec * 1'000'000'000ULL;
+    const uint64_t end_ns = (duration_sec == 0) ? UINT64_MAX : duration_sec * 1'000'000'000ULL;
 
     struct SymbolConfig {
         hft::SymbolId id;
@@ -262,7 +262,7 @@ int main(int argc, char* argv[])
     std::string   mode;
     std::string   csv_path;
     double        speed        = 1.0;
-    uint64_t      duration_sec = 10;
+    uint64_t      duration_sec = 0; // 0 = run continuously
     hft::SymbolId symbol_id   = 0;
     uint32_t      half_spread  = 5;
     uint64_t      noise_us     = 500;

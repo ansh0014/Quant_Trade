@@ -46,8 +46,12 @@ public:
         // Cancel previous resting quotes
         cancel_resting(now_ns);
 
-        // Add subtle Brownian motion random walk to simulate authentic price action
-        int32_t step = (rng_() % 3 == 0) ? ((rng_() % 2 == 0) ? 1 : -1) : 0;
+        // Add Brownian motion random walk to simulate authentic active market volatility
+        int32_t rand_val = static_cast<int32_t>(rng_() % 10);
+        int32_t step = 0;
+        if (rand_val < 4) {
+            step = (rng_() % 2 == 0) ? (1 + static_cast<int32_t>(rng_() % 3)) : -(1 + static_cast<int32_t>(rng_() % 3));
+        }
         cfg_.ref_price = static_cast<Price>(std::max<int32_t>(100, static_cast<int32_t>(cfg_.ref_price) + step));
 
         // Determine mid price from book; fall back to ref_price if empty

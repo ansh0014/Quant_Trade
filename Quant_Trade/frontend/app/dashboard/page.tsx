@@ -668,6 +668,7 @@ export default function DashboardPage() {
   const pendingHistoriesRef = useRef<Record<string, PricePoint[]>>({})
   const pendingTradesRef = useRef<TradeEntry[]>([])
   const totalTickCountRef = useRef(0)
+  const lastChartSampleTimeRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
     if (connected) {
@@ -750,10 +751,16 @@ export default function DashboardPage() {
           const micro = calcMicroprice(tick.bid, tick.ask, tick.bid_sz, tick.ask_sz)
           const time = nsToTime(tick.timestamp_ns)
 
-          if (!pendingHistoriesRef.current[sym]) {
-            pendingHistoriesRef.current[sym] = []
+          // Downsample chart data to 5Hz (1 sample every 200ms) so 60 points span 12 seconds of visible price action
+          const now = Date.now()
+          const lastSample = lastChartSampleTimeRef.current[sym] || 0
+          if (now - lastSample >= 200) {
+            lastChartSampleTimeRef.current[sym] = now
+            if (!pendingHistoriesRef.current[sym]) {
+              pendingHistoriesRef.current[sym] = []
+            }
+            pendingHistoriesRef.current[sym].push({ time, mid, micro, last: tick.last_price })
           }
-          pendingHistoriesRef.current[sym].push({ time, mid, micro, last: tick.last_price })
         } catch { /* parse skip */ }
       }
     } catch { /* connection failed */ }
