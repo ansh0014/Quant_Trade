@@ -39,7 +39,7 @@ func NewClient(addr string, logger *zap.Logger) (*Client, error) {
 
 // IsReady returns true when the underlying gRPC connection is usable.
 func (c *Client) IsReady() bool {
-	if c == nil || c.conn == nil {
+	if c.conn == nil {
 		return false
 	}
 	s := c.conn.GetState()

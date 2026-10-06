@@ -206,9 +206,6 @@ func (w *ParquetWriter) processFlushSnapshot(snapshot map[string][]ParquetTick) 
 }
 
 func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTick) error {
-	if len(ticks) == 0 {
-		return nil
-	}
 	key := fmt.Sprintf("%s_%s", symbol, dateStr)
 
 	dir := filepath.Join(w.cfg.OutputDir, symbol, dateStr)
@@ -217,11 +214,37 @@ func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTi
 	}
 
 	partIdx := w.currentPart[key]
-	filePath := filepath.Join(dir, fmt.Sprintf("part_%04d_%d.parquet", partIdx, time.Now().UnixMilli()))
-	w.currentPart[key]++
-	w.ticksWritten[key] += len(ticks)
+	filePath := filepath.Join(dir, fmt.Sprintf("part_%04d.parquet", partIdx))
 
-	return w.writeFreshParquet(filePath, ticks)
+	var existingTicks []ParquetTick
+	if _, err := os.Stat(filePath); err == nil {
+		existingTicks, err = w.readParquetFile(filePath)
+		if err != nil {
+			w.logger.Warn("Failed to read existing Parquet file for append, creating new one", zap.Error(err))
+			existingTicks = nil
+		}
+	}
+
+	allTicks := append(existingTicks, ticks...)
+	w.ticksWritten[key] = len(allTicks)
+
+	if len(allTicks) > w.cfg.MaxFileTicks {
+		keepTicks := allTicks[:w.cfg.MaxFileTicks]
+		spillTicks := allTicks[w.cfg.MaxFileTicks:]
+
+		if err := w.writeFreshParquet(filePath, keepTicks); err != nil {
+			return err
+		}
+
+		w.currentPart[key]++
+		partIdx = w.currentPart[key]
+		filePath = filepath.Join(dir, fmt.Sprintf("part_%04d.parquet", partIdx))
+		w.ticksWritten[key] = len(spillTicks)
+
+		return w.writeFreshParquet(filePath, spillTicks)
+	}
+
+	return w.writeFreshParquet(filePath, allTicks)
 }
 
 func (w *ParquetWriter) writeFreshParquet(path string, ticks []ParquetTick) error {
