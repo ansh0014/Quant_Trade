@@ -4,92 +4,72 @@ An institutional-grade, event-driven High-Frequency Trading (HFT) and Quantitati
 
 ---
 
-## 1. System Overview & Architecture
+## 1. System Summary
 
-QuantTrade is engineered across four decoupled runtime tiers to guarantee deterministic sub-microsecond order execution, resilient high-throughput data fan-out, real-time ML directional inference, and low-overhead client visualization:
+QuantTrade is a polyglot, event-driven high-frequency trading simulation and execution platform operating across four decoupled runtime tiers:
+
+* **C++20 Exchange Engine**: Deterministic matching engine, Order Book (LOB), stochastic market maker with Brownian price walk, and aggressive noise order flow.
+* **Go Ingestion Gateway**: High-throughput binary wire deserialization, lock-free SPSC ring buffering, $O(1)$ batch Parquet persistence, and real-time WebSocket broadcast hub.
+* **Python ML Pipeline**: Online feature engineering pipeline, LightGBM directional alpha prediction, and sub-millisecond gRPC inference server with atomic hot-reload.
+* **Next.js 14 Frontend**: Real-time trading dashboard featuring a 25Hz frame batching buffer and 5Hz rolling price-action visualization deployed on Vercel and K3s.
+
+---
+
+## 2. High-Level Design (HLD)
+
+### 2.1 Logical Architecture
 
 ```mermaid
 flowchart LR
-    subgraph L1[Exchange & Matching Engine — C++20]
-        MM[Market Maker]
-        NT[Noise Trader]
-        ME[Lock-Free Matching Engine]
-        RG[Pre-Trade Risk Gate]
-        WSP[Binary WebSocket Publisher]
+    subgraph L1["Exchange Layer (C++20)"]
+        EX["C++ Exchange Simulator"]
+        ME["Matching Engine + LOB"]
+        RG["Pre-Trade Risk Gate"]
     end
 
-    subgraph L2[Ingestion & Distribution — Go]
-        WSC[WS Binary Ingestor]
-        CB[Circuit Breaker]
-        RB[Lock-Free SPSC Ring Buffer]
-        DISP[Dispatcher]
-        VAL[Tick Validator]
-        PQ[Non-Blocking O(1) Parquet Storage]
-        HUB[Market & Trade Broadcast Hub]
-        WSG[JSON WebSocket Gateway :8081]
+    subgraph L2["Ingestion Layer (Go)"]
+        WSIN["WS Binary Client"]
+        RB["SPSC Ring Buffer"]
+        VAL["Tick Validator"]
+        HUB["Broadcast Hub"]
+        PERSIST["Parquet Storage"]
+        BAPI["gRPC + WebSocket APIs"]
     end
 
-    subgraph L3[Machine Learning — Python 3.11]
-        PIPE[Streaming Feature Pipeline]
-        MOD[LightGBM Alpha Predictor]
-        GRPC[Inference Engine :50051]
+    subgraph L3["ML Layer (Python 3.11)"]
+        REC["Python Recorder"]
+        FE["Feature Engineering"]
+        TRN["Training Pipeline"]
+        INF["Inference gRPC Service"]
+        ART["Model Artifacts"]
     end
 
-    subgraph L4[Presentation & Cloud Edge]
-        CFT[Cloudflare SSL Tunnel]
-        VCL[Next.js Dashboard on Vercel]
-        K3S_UI[In-Cluster Next.js UI :3000]
+    subgraph L4["Presentation Layer (Next.js)"]
+        UI["Web Dashboard"]
     end
 
-    MM -->|Quotes + Price Drift| ME
-    NT -->|Aggressive Market/Limit Orders| ME
-    ME --> RG --> WSP
-    WSP -->|WireTick & WireTrade Binaries| WSC
-    WSC --> CB --> RB --> DISP
-    DISP --> VAL --> PQ
-    DISP --> HUB
-    HUB -->|gRPC Request| GRPC --> MOD
-    HUB --> WSG
-    WSG --> CFT --> VCL
-    WSG --> K3S_UI
+    EX --> ME --> RG -->|"Binary Tick/Trade"| WSIN
+    WSIN --> RB --> VAL --> HUB
+    VAL --> PERSIST
+    HUB --> BAPI --> UI
+
+    HUB --> REC --> FE --> TRN --> ART --> INF
+    INF -->|"Alpha Signals"| HUB
 ```
 
----
+### 2.2 System Design Overview
 
-## 2. Low-Level Design (LLD)
+![QuantTrade System Architecture](System-Design.png)
 
-### 2.1 C++20 Core Matching Engine & Exchange Simulator (`core-cpp/` & `exchange-sim/`)
-* **Matching Engine**: Continuous double-auction price-time priority ($O(1)$ lookup via memory-pooled cacheline-aligned `OrderNode` instances).
-* **Brownian Price Drift**: `MarketMaker` quotes both sides of the book while applying continuous stochastic random walks to simulate realistic price volatility.
-* **Order Flow Simulation**: `NoiseTrader` injects 60% aggressive spread-crossing `MARKET` orders and 40% passive `LIMIT` orders, driving continuous trade executions into the Trade Tape.
-* **Continuous Execution**: Runs continuously in synthetic mode (`--duration 0` for infinite continuous simulation) or deterministic replay mode (`--replay`).
-
-### 2.2 Go Market Data Ingestor & Router (`backend-go/`)
-* **Binary Deserialization**: High-speed zero-alloc parsing of `WireTick` (43 bytes) and `WireTrade` (51 bytes) packets.
-* **SPSC Ring Buffer**: Decouples network I/O from disk writes and downstream client broadcasts.
-* **$O(1)$ Non-Blocking Parquet Storage**: Asynchronous batch appends avoiding memory locks and preventing Out-Of-Memory (`OOMKilled`) crashes.
-* **Circuit Breaker & Gap Detection**: Automatic reconnect with exponential backoff and sequence gap alerting.
-
-### 2.3 Python ML Directional Alpha Predictor (`ml/`)
-* **Microstructure Features**: Order Book Imbalance (OBI), volume-weighted microprice, bid-ask spread deviation, and EWMA log-return momentum.
-* **gRPC Inference**: Async sub-millisecond predictions served on port `50051` with Prometheus metrics on port `9100`.
-* **Atomic Model Hot-Reload**: Thread-safe hot swapping of trained model artifacts without restarting running pods.
-
-### 2.4 Next.js 14 Web Dashboard (`frontend/`)
-* **25Hz Frame Batching Buffer**: Ticks and trade fills queue in a mutable microsecond buffer and flush at 25 FPS (every 40ms), keeping client frame rates at a smooth **60 FPS** without browser thread saturation.
-* **5Hz Rolling Chart Downsampling**: Downsamples chart history to 5Hz so 60 data points represent 12 seconds of real-time price trend curves.
-
----
-
-## 3. Runtime Endpoints & Data Contracts
+### 2.3 Runtime Endpoints & Protocols
 
 | Component | Protocol | Endpoint / Port | Description |
 | :--- | :--- | :--- | :--- |
-| **Exchange Simulator** | Binary WS | `ws://hft-exchange-sim-svc:8080/ws/market-data` | High-frequency binary tick & trade stream |
+| **Exchange Simulator** | Binary WS | `ws://hft-exchange-sim-svc:8080/ws/market-data` | High-frequency binary tick & trade publisher |
 | **Go Backend (Market Data)** | JSON WS | `ws://hft-backend-svc:8081/ws/market-data` | Real-time L1/L2 Order Book snapshots |
 | **Go Backend (Trade Tape)** | JSON WS | `ws://hft-backend-svc:8081/ws/trades` | Real-time executed trade fills (`BUY`/`SELL`) |
 | **Go Backend (ML Stream)** | JSON WS | `ws://hft-backend-svc:8081/ws/ml-predictions` | Directional alpha probabilities |
-| **Go Backend REST/Metrics** | HTTP | `http://hft-backend-svc:8081/metrics` | Prometheus metrics and benchmark endpoints |
+| **Go Backend REST/Metrics** | HTTP | `http://hft-backend-svc:8081/metrics` | Prometheus scraping and benchmark metrics |
 | **Go Backend gRPC** | gRPC | `hft-backend-svc:9090` | Market data gRPC server |
 | **Python ML Inference** | gRPC / HTTP | `hft-ml-predictor-svc:50051` / `:9100/metrics` | Inference engine and ML Prometheus metrics |
 | **Cloudflare Tunnel** | HTTPS/WSS | `https://*.trycloudflare.com` | Edge tunnel routing directly to Kubernetes Ingress |
@@ -97,27 +77,99 @@ flowchart LR
 
 ---
 
+## 3. Low-Level Design (LLD)
+
+### 3.1 Ingestion Internals (Go)
+
+```mermaid
+flowchart TD
+    A["WS Client<br/>(internal/ingestor/ws_client.go)"]
+    B["Circuit Breaker<br/>(internal/ingestor/circuit_breaker.go)"]
+    C["SPSC Ring Buffer (131,072 slots)<br/>(internal/ingestor/ring_buffer.go)"]
+    D["Dispatcher<br/>(internal/ingestor/dispatcher.go)"]
+    E["Validator<br/>(internal/ingestor/validator.go)"]
+    F["Hub Tick Broadcast<br/>(internal/hub)"]
+    G["Trade Broadcast<br/>(internal/hub)"]
+    H["Parquet Writer O(1) Batch<br/>(internal/storage)"]
+    I["gRPC Server :9090<br/>(internal/grpc)"]
+    J["WebSocket Gateway :8081<br/>(internal/websocket)"]
+
+    A --> B --> C --> D --> E
+    E --> F
+    E --> H
+    D --> G
+    F --> J
+    G --> J
+    F --> I
+```
+
+### 3.2 ML Inference Request Path
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as Frontend / Consumer
+    participant GO as Go Backend
+    participant ML as Python Inference gRPC
+    participant AR as Artifact Store
+
+    FE->>GO: Subscribe /ws/ml-predictions
+    GO->>ML: PredictionRequest(bid, ask, bid_sz, ask_sz)
+    ML->>ML: StreamingFeaturePipeline (OBI, Microprice, Drift)
+    ML->>ML: Model predict_proba()
+    ML-->>GO: PredictionResponse(direction, score)
+    GO-->>FE: Broadcast prediction JSON
+
+    loop Periodic Check
+        ML->>AR: Inspect metadata.json timestamp
+        alt Artifact updated
+            ML->>ML: Hot-reload model & pipeline atomically
+        end
+    end
+```
+
+### 3.3 Exchange Matching & Pre-Trade Risk Gate
+
+```mermaid
+flowchart LR
+    O["Incoming Order"] --> K{"Kill Switch Active?"}
+    K -- Yes --> R1["Reject: Kill Switch Engaged"]
+    K -- No --> Q{"Max Qty Check"}
+    Q -- Fail --> R2["Reject: Max Qty Exceeded"]
+    Q -- Pass --> RL{"Rate Limit Check"}
+    RL -- Fail --> R3["Reject: Rate Exceeded"]
+    RL -- Pass --> N{"Notional Cap"}
+    N -- Fail --> R4["Reject: Notional Exceeded"]
+    N -- Pass --> P{"Position Cap"}
+    P -- Fail --> R5["Reject: Position Limit"]
+    P -- Pass --> L{"Loss Cap"}
+    L -- Fail --> R6["Reject: Drawdown Cap"]
+    L -- Pass --> M["Match in Double-Auction LOB"]
+    M --> T["Emit WireTick + WireTrade"]
+```
+
+---
+
 ## 4. Kubernetes Deployments
 
 ### 4.1 Production Cluster (AWS EC2 / K3s)
 
-Production manifests are located in `deployment/k8s/*.prod.yaml`:
+Production manifests are structured in `deployment/k8s/*.prod.yaml`:
 
 ```bash
-# Apply Production Manifests
+# 1. Apply production platform manifests
 kubectl apply -f deployment/k8s/platform-services.prod.yaml
 kubectl apply -f deployment/k8s/simulation-cronjob.prod.yaml
 
-# Check Pod Status
+# 2. Check cluster health
 kubectl get pods -n hft
 ```
 
-#### Production Pod Architecture
-* `hft-backend-deploy`: Go Ingestion and WebSocket router (Memory Limit: `1536Mi`, CPU Limit: `1000m`).
-* `hft-ml-predictor-deploy`: Python LightGBM gRPC inference engine.
-* `hft-exchange-sim-continuous`: Continuous C++ matching engine and market simulator.
-* `hft-frontend-deploy`: In-cluster Next.js fallback UI.
-* `cloudflared-tunnel.service`: Permanent `systemd` edge tunnel connecting AWS K3s to public Vercel frontend.
+#### Production Architecture Highlights:
+* **`hft-backend-deploy`**: High-speed Go router with $O(1)$ non-blocking Parquet persistence (Memory Limit: `1536Mi`, CPU Limit: `1000m`).
+* **`hft-ml-predictor-deploy`**: LightGBM gRPC predictor with Prom metrics on port 9100.
+* **`hft-exchange-sim-continuous`**: Continuous 24/7 C++ exchange simulator with infinite runtime (`--duration 0`).
+* **`cloudflared-tunnel.service`**: Systemd edge SSL tunnel routing external traffic directly to K3s Traefik ingress.
 
 ---
 
@@ -125,14 +177,14 @@ kubectl get pods -n hft
 
 Local manifests are located in `deployment/k8s/platform-services.yaml` and `simulation-cronjob.yaml`.
 
-#### Automated Deployment Script (Windows / Minikube):
+#### Automated Deployment (Windows):
 ```cmd
 scripts\deploy_local.bat
 ```
 
 #### Manual Deployment:
 ```bash
-# 1. Start Minikube & point Docker to Minikube daemon
+# 1. Start Minikube & point Docker daemon
 minikube start --cpus=4 --memory=4096
 eval $(minikube docker-env)
 
@@ -151,17 +203,17 @@ kubectl port-forward svc/hft-frontend-svc -n hft 3000:3000
 kubectl port-forward svc/hft-backend-svc -n hft 8081:8081
 ```
 
-Access local dashboard: `http://localhost:3000/dashboard`
+Dashboard access: `http://localhost:3000/dashboard`
 
 ---
 
 ## 5. Feed Rate Tuning & Scaling Guide
 
-The platform runs by default at **`1,000 – 1,200 msg/s`** (the optimal rate for cloud Free Tier efficiency and low-bandwidth web streaming).
+The exchange simulator defaults to **`1,000 – 1,200 msg/s`** (the optimal rate for cloud Free Tier efficiency and low-bandwidth web streaming).
 
-To adjust or stress-test higher feed rates, edit `SIM_NOISE_US` in the ConfigMap (`deployment/k8s/simulation-cronjob.prod.yaml`):
+To adjust or stress-test higher throughput, edit `SIM_NOISE_US` in the ConfigMap (`deployment/k8s/simulation-cronjob.prod.yaml`):
 
-| Feed Rate | `SIM_NOISE_US` Setting | Use Case |
+| Target Throughput | `SIM_NOISE_US` Value | Use Case |
 | :--- | :--- | :--- |
 | **`1,000 msg/s`** (Default) | `10000` (10ms) | Production dashboard, zero-cost AWS Free Tier ($0/mo), low bandwidth. |
 | **`2,500 msg/s`** | `4000` (4ms) | High-activity intraday trading session simulation. |
@@ -170,10 +222,10 @@ To adjust or stress-test higher feed rates, edit `SIM_NOISE_US` in the ConfigMap
 
 ### Applying Feed Rate Changes Without Recompiling:
 ```bash
-# 1. Edit ConfigMap or apply updated YAML
+# 1. Apply updated YAML
 kubectl apply -f deployment/k8s/simulation-cronjob.prod.yaml
 
-# 2. Restart the simulation pod
+# 2. Restart the simulator pod
 kubectl rollout restart deployment hft-exchange-sim-continuous -n hft
 ```
 
@@ -181,54 +233,91 @@ kubectl rollout restart deployment hft-exchange-sim-continuous -n hft
 
 ## 6. Observability & Planned Grafana Roadmap
 
-The platform currently emits Prometheus metrics across Go and Python tiers:
-
-* **Go Backend Metrics** (`http://<backend>:8081/metrics`):
-  * `hft_ticks_ingested_total`: Counter of valid ticks processed.
-  * `hft_trades_executed_total`: Counter of trade fills broadcasted.
-  * `hft_ringbuffer_depth`: Current depth of the SPSC ingestor queue.
-  * `hft_ingest_latency_nanoseconds`: Microsecond-precision ingestion latency.
-  * `hft_circuit_breaker_state`: Exchange connection state (0 = Closed/OK, 1 = Open/Tripped).
-
-* **Python ML Metrics** (`http://<ml-predictor>:9100/metrics`):
-  * `ml_predict_requests_total`: Inference request count by status (`ok`, `error`).
-  * `ml_predict_duration_seconds`: Histogram of ML feature extraction and model scoring latency.
-
-### Planned Monitoring Stack (Upcoming):
 ```mermaid
 flowchart LR
-    K3S_PODS[Kubernetes Pods\n:8081 / :9100 / :8080] -->|Scrape /metrics| PROM[Prometheus Server]
-    PROM --> GRAF[Grafana Dashboards]
-    GRAF --> D1[HFT Latency & Throughput Dashboard]
-    GRAF --> D2[LOB Depth & Trade Fill Rates]
-    GRAF --> D3[ML Model Drift & Alpha Confidence]
-    GRAF --> D4[Pre-Trade Risk Collar Violations]
+    subgraph S1["Telemetry Producers"]
+        P1["Go Backend (:8081/metrics)"]
+        P2["ML Predictor (:9100/metrics)"]
+        P3["Matching Engine Telemetry"]
+    end
+
+    subgraph S2["Collection Layer"]
+        PROM["Prometheus Server"]
+    end
+
+    subgraph S3["Visualization (Grafana)"]
+        D1["Dashboard: Throughput & P99 Latency"]
+        D2["Dashboard: Order Book Depth & Fills"]
+        D3["Dashboard: ML Feature Drift & Confidence"]
+        D4["Dashboard: Risk Collar Rejections"]
+    end
+
+    P1 -->|Scrape| PROM
+    P2 -->|Scrape| PROM
+    P3 -->|Scrape| PROM
+    PROM --> D1
+    PROM --> D2
+    PROM --> D3
+    PROM --> D4
 ```
+
+### Key Metrics Exported:
+* **Go Backend Metrics** (`http://<backend>:8081/metrics`):
+  * `hft_ticks_ingested_total`: Counter of valid market ticks ingested.
+  * `hft_trades_executed_total`: Counter of executed trade fills broadcasted.
+  * `hft_ringbuffer_depth`: Depth of SPSC ingestor queue.
+  * `hft_ingest_latency_nanoseconds`: End-to-end ingestion latency histogram.
+  * `hft_circuit_breaker_state`: Connection status (`0` = Closed/OK, `1` = Open/Tripped).
+
+* **Python ML Metrics** (`http://<ml-predictor>:9100/metrics`):
+  * `ml_predict_requests_total`: Prediction count by status (`ok`, `error`).
+  * `ml_predict_duration_seconds`: Histogram of ML inference latency.
 
 ---
 
-## 7. Operations & Maintenance Cheatsheet
+## 7. Operations Cheatsheet
 
 ```bash
-# Restart all cluster services
+# Rollout restart all cluster deployments
 kubectl rollout restart deployment -n hft
 
-# Rollback to previous deployment revision (Undo)
+# Rollback to previous deployment revision
 kubectl rollout undo deployment/hft-backend-deploy -n hft
 kubectl rollout undo deployment/hft-exchange-sim-continuous -n hft
 
-# View live streaming logs
+# Stream live container logs
 kubectl logs -l app=backend -n hft -f
 kubectl logs -l app=exchange-sim -n hft -f
 kubectl logs -l app=ml-predictor -n hft -f
 
-# Check cluster resource usage
+# Check cluster resource utilization
 kubectl top pods -n hft
 kubectl top nodes
 ```
 
 ---
 
-## 8. License
+## 8. Repository Structure
+
+```text
+Quant_Trade/
+├── backend-go/             # Go 1.22 ingestion, validation, SPSC ring buffer & WebSockets
+├── core-cpp/               # C++20 low-latency matching engine, LOB & cacheline structures
+├── exchange-sim/           # Synthetic market maker with Brownian drift & noise generator
+├── ml/                     # Python 3.11 streaming feature pipeline, LightGBM & gRPC server
+├── frontend/               # Next.js 14 real-time dashboard with 25Hz batching & charts
+├── proto/                  # Protobuf schemas for market data, risk, and predictions
+├── configs/                # Runtime configuration YAMLs (dev, prod)
+├── deployment/
+│   └── k8s/                # Kubernetes manifests (Minikube & AWS K3s production)
+├── scripts/
+│   └── deploy_local.bat    # 1-click Minikube automated deployment script
+├── docker-compose.yml      # Local container compose configuration
+└── README.md               # Project architecture and developer guide
+```
+
+---
+
+## 9. License
 
 This project is licensed under the **MIT License**.
