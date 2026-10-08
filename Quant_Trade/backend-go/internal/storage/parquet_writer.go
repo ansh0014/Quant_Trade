@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -216,12 +218,43 @@ func (w *ParquetWriter) writeToParquet(symbol, dateStr string, ticks []ParquetTi
 		return err
 	}
 
+	// Rolling Circular Retention: keep at most 30 recent part files (~60MB per symbol)
+	// Prevents disk from ever accumulating gigabytes of historical data
+	w.enforceRollingRetention(dir, 30)
+
 	partIdx := w.currentPart[key]
 	filePath := filepath.Join(dir, fmt.Sprintf("part_%04d_%d.parquet", partIdx, time.Now().UnixMilli()))
 	w.currentPart[key]++
 	w.ticksWritten[key] += len(ticks)
 
 	return w.writeFreshParquet(filePath, ticks)
+}
+
+func (w *ParquetWriter) enforceRollingRetention(dir string, maxFiles int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) <= maxFiles {
+		return
+	}
+
+	var parquetFiles []os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".parquet") {
+			parquetFiles = append(parquetFiles, entry)
+		}
+	}
+
+	if len(parquetFiles) > maxFiles {
+		// Sort by name (which has sequential partIdx and timestamp)
+		sort.Slice(parquetFiles, func(i, j int) bool {
+			return parquetFiles[i].Name() < parquetFiles[j].Name()
+		})
+
+		// Delete oldest files exceeding maxFiles
+		toDelete := len(parquetFiles) - maxFiles
+		for i := 0; i < toDelete; i++ {
+			_ = os.Remove(filepath.Join(dir, parquetFiles[i].Name()))
+		}
+	}
 }
 
 func (w *ParquetWriter) writeFreshParquet(path string, ticks []ParquetTick) error {
