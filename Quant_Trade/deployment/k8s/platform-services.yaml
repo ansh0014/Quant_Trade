@@ -110,9 +110,11 @@ spec:
             requests:
               cpu: "1000m"
               memory: "1Gi"
+              ephemeral-storage: "256Mi"
             limits:
               cpu: "2000m"
               memory: "2Gi"
+              ephemeral-storage: "1Gi"
           livenessProbe:
             tcpSocket:
               port: 50051
@@ -186,9 +188,11 @@ spec:
             requests:
               cpu: "500m"
               memory: "512Mi"
+              ephemeral-storage: "256Mi"
             limits:
               cpu: "1000m"
               memory: "1Gi"
+              ephemeral-storage: "1Gi"
           livenessProbe:
             tcpSocket:
               port: 8081
@@ -266,9 +270,11 @@ spec:
             requests:
               cpu: "250m"
               memory: "256Mi"
+              ephemeral-storage: "128Mi"
             limits:
               cpu: "500m"
               memory: "512Mi"
+              ephemeral-storage: "512Mi"
           livenessProbe:
             tcpSocket:
               port: 3000
@@ -294,3 +300,53 @@ spec:
       protocol: TCP
       port: 3000
       targetPort: 3000
+
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. STORAGE RETENTION PRUNER (PREVENTS LOCAL DISK OVERFLOW)
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hft-data-pruner
+  namespace: hft
+  labels:
+    app.kubernetes.io/name: hft-storage-pruner
+    app.kubernetes.io/part-of: hft-platform
+spec:
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 60
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pruner
+              image: busybox:1.36
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  if [ -d /data/ticks ]; then
+                    find /data/ticks -type f -mmin +1440 -name "*.parquet" -exec rm -f {} + 2>/dev/null || true
+                  fi
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "32Mi"
+                  ephemeral-storage: "32Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "64Mi"
+                  ephemeral-storage: "64Mi"
+              volumeMounts:
+                - name: shared-storage
+                  mountPath: /data
+          volumes:
+            - name: shared-storage
+              persistentVolumeClaim:
+                claimName: hft-shared-data-pvc
+
