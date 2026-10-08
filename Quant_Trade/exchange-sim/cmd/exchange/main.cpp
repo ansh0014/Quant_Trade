@@ -178,7 +178,7 @@ static int run_synth(hft::SymbolId symbol_id,
         nt_cfg.max_qty     = 100;
         nt_cfg.interval_ns = (noise_interval_us + s * 10000) * 1'000;
         nt_cfg.seed        = 0xdeadbeefULL + s * 0x12345ULL;
-        auto nt = std::make_unique<hft::NoiseTrader>(nt_cfg);
+        auto nt = std::make_unique<hft::NoiseTrader>(*engine, nt_cfg);
 
         auto* mm_ptr = mm.get();
         auto* nt_ptr = nt.get();
